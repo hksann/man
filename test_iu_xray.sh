@@ -18,4 +18,4 @@ python main_test.py \
     --beam_size 3 \
     --save_dir results/iu_xray/ \
     --log_period 50 \
-    --load /kaggle/working/R2GenCMN/results/iu_xray/model_best.pth
+    --load /kaggle/working/man/results/iu_xray/model_best.pth
