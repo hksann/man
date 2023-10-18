@@ -1,13 +1,13 @@
 python main_train.py\
-    --image_dir data/iu_xray/images/ \
-    --ann_path data/iu_xray/annotation.json \
+    --image_dir /kaggle/input/images/iu_xray/images \
+    --ann_path /kaggle/input/images/iu_xray/annotation.json \
     --dataset_name iu_xray \
     --max_seq_length 60 \
     --threshold 3 \
     --epochs 100 \
     --batch_size 16 \
-    --lr_ve 1e-4 \
-    --lr_ed 5e-4 \
+    --lr_ve 5e-5 \
+    --lr_ed 2.5e-4 \
     --step_size 10 \
     --gamma 0.8 \
     --num_layers 3 \
@@ -17,4 +17,4 @@ python main_train.py\
     --seed 7580 \
     --beam_size 3 \
     --save_dir results/iu_xray/ \
-    --log_period 50
+    --log_period 100 \
