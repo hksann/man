@@ -41,7 +41,8 @@ class R2DataLoader(DataLoader):
             'batch_size': self.batch_size,
             'shuffle': self.shuffle,
             'collate_fn': self.collate_fn,
-            'num_workers': self.num_workers
+            'num_workers': self.num_workers,
+            'pin_memory': True  # 将pin_memory参数传递给DataLoader并设置为True
         }
         super().__init__(**self.init_kwargs)
 
