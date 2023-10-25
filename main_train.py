@@ -115,6 +115,10 @@ def main():
     val_dataloader = R2DataLoader(args, tokenizer, split='val', shuffle=False)
     test_dataloader = R2DataLoader(args, tokenizer, split='test', shuffle=False)
 
+    # 确保在数据加载到 GPU 之前启用 pin_memory
+    if torch.cuda.is_available():
+        train_dataloader.pin_memory = True
+
     # build model architecture
     model = BaseCMNModel(args, tokenizer)
 
@@ -126,9 +130,11 @@ def main():
     optimizer = build_optimizer(args, model)
     lr_scheduler = build_lr_scheduler(args, optimizer)
 
-    # build trainer and start to train
-    trainer = Trainer(model, criterion, metrics, optimizer, args, lr_scheduler, train_dataloader, val_dataloader, test_dataloader)
+    # Pass the relevant parameters to Trainer
+    trainer = Trainer(model, criterion, metrics, optimizer, args, lr_scheduler,
+                      train_dataloader, val_dataloader, test_dataloader, args.lr_ve, args.lr_ed, args.step_size, args.gamma)
     trainer.train()
+
 
 
 if __name__ == '__main__':
