@@ -1,13 +1,17 @@
 import logging
 import os
 from abc import abstractmethod
-
+import time
 import torch
+import random
+import openai
 from numpy import inf
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 from .base_cmn import BaseCMN
-
+from torch.cuda.amp import autocast, GradScaler
+from googletrans import Translator
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler):
@@ -23,6 +27,8 @@ class BaseTrainer(object):
         if len(device_ids) > 1:
             self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
         
+        # 创建 AMP GradScaler 对象
+        self.scaler = GradScaler()
         self.criterion = criterion
         self.optimizer = optimizer
         self.metric_ftns = metric_ftns
@@ -69,7 +75,7 @@ class BaseTrainer(object):
 
             # print logged informations to the screen
             for key, value in log.items():
-                self.logger.info('\t{:15s}: {}'.format(str(key), value))
+                print('\t{:15s}: {}'.format(str(key), value))
 
             # evaluate model performance according to configured metric, save best checkpoint as model_best
             best = False
@@ -79,8 +85,7 @@ class BaseTrainer(object):
                     improved = (self.mnt_mode == 'min' and log[self.mnt_metric] <= self.mnt_best) or \
                                (self.mnt_mode == 'max' and log[self.mnt_metric] >= self.mnt_best)
                 except KeyError:
-                    self.logger.warning(
-                        "Warning: Metric '{}' is not found. " "Model performance monitoring is disabled.".format(
+                    print("Warning: Metric '{}' is not found. " "Model performance monitoring is disabled.".format(
                             self.mnt_metric))
                     self.mnt_mode = 'off'
                     improved = False
@@ -93,7 +98,7 @@ class BaseTrainer(object):
                     not_improved_count += 1
 
                 if not_improved_count > self.early_stop:
-                    self.logger.info("Validation performance didn\'t improve for {} epochs. " "Training stops.".format(
+                    print("Validation performance didn\'t improve for {} epochs. " "Training stops.".format(
                         self.early_stop))
                     break
 
@@ -115,13 +120,13 @@ class BaseTrainer(object):
             self.best_recorder['test'].update(log)
 
     def _print_best(self):
-        self.logger.info('Best results (w.r.t {}) in validation set:'.format(self.args.monitor_metric))
+        print('Best results (w.r.t {}) in validation set:'.format(self.args.monitor_metric))
         for key, value in self.best_recorder['val'].items():
-            self.logger.info('\t{:15s}: {}'.format(str(key), value))
+            print('\t{:15s}: {}'.format(str(key), value))
 
-        self.logger.info('Best results (w.r.t {}) in test set:'.format(self.args.monitor_metric))
+        print('Best results (w.r.t {}) in test set:'.format(self.args.monitor_metric))
         for key, value in self.best_recorder['test'].items():
-            self.logger.info('\t{:15s}: {}'.format(str(key), value))
+            print('\t{:15s}: {}'.format(str(key), value))
 
     def _prepare_device(self, n_gpu_use):
         """
@@ -129,11 +134,11 @@ class BaseTrainer(object):
         """
         n_gpu = torch.cuda.device_count()
         if n_gpu_use > 0 and n_gpu == 0:
-            self.logger.warning("Warning: There's no GPU available on this machine, training will be performed on CPU.")
+            print("Warning: There's no GPU available on this machine, training will be performed on CPU.")
             n_gpu_use = 0
         if n_gpu_use > n_gpu:
             msg = "Warning: The number of GPU's configured to use is {}, but only {} are available on this machine.".format(n_gpu_use, n_gpu)
-            self.logger.warning(msg)
+            print(msg)
             n_gpu_use = n_gpu
         device = torch.device('cuda' if n_gpu_use > 0 else 'cpu')
         list_ids = list(range(n_gpu_use))
@@ -148,81 +153,93 @@ class BaseTrainer(object):
         }
         filename = os.path.join(self.checkpoint_dir, 'current_checkpoint.pth')
         torch.save(state, filename)
-        self.logger.info("Saving checkpoint: {} ...".format(filename))
+        print("Saving checkpoint: {} ...".format(filename))
         if save_best:
             best_path = os.path.join(self.checkpoint_dir, 'model_best.pth')
             torch.save(state, best_path)
-            self.logger.info("Saving current best: model_best.pth ...")
+            print("Saving current best: model_best.pth ...")
 
     def _resume_checkpoint(self, resume_path):
         resume_path = str(resume_path)
-        self.logger.info("Loading checkpoint: {} ...".format(resume_path))
+        print("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path)
         self.start_epoch = checkpoint['epoch'] + 1
         self.mnt_best = checkpoint['monitor_best']
         self.model.load_state_dict(checkpoint['state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        self.logger.info("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
-
+        print("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
 
 class Trainer(BaseTrainer):
     
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler, train_dataloader,
-                 val_dataloader, test_dataloader):
+                 val_dataloader, test_dataloader, lr_ve, lr_ed, step_size, gamma):
         super(Trainer, self).__init__(model, criterion, metric_ftns, optimizer, args, lr_scheduler)
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
-        
-         # 先初始化为None
+
+        # 先初始化为None
         self.train_loss_history = []
         self.val_metrics_history = None
         self.test_metrics_history = None
         
+        self.lr_ve = lr_ve  # 设置 lr_ve 属性
+        self.lr_ed = lr_ed  # 设置 lr_ed 属性
+        self.step_size = step_size  # 设置 step_size 属性
+        self.gamma = gamma  # 设置 gamma 属性
+    
+    def translate_to_chinese(self, text_to_translate):
+        # 创建一个Translator对象
+        translator = Translator()
+        # 执行文本翻译，从英文到中文
+        translated_text = translator.translate(text_to_translate, src='en', dest='zh-cn').text
+        return translated_text
         
     def _train_epoch(self, epoch):
-        self.logger.info(logging.getLogger().getEffectiveLevel())
-        self.logger.info('[{}/{}] Start to train in the training set.'.format(epoch, self.epochs))
+        print(logging.getLogger().getEffectiveLevel())
+#         print('[{}/{}] Start to train in the training set.'.format(epoch, self.epochs))
         train_loss = 0
+        random_test_sample_idx = random.randint(0, len(self.test_dataloader) - 1)  # 移至循环外部
+        random_val_sample_idx = random.randint(0, len(self.val_dataloader) - 1)  # 新增，移至循环外部
         self.model.train()
+        
+        start_time = time.time()  # 记录开始时间
 
         for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.train_dataloader):
             
-#             print(f"Device for images: {images.device}")
-#             print(f"Device for reports_ids: {reports_ids.device}")
-#             print(f"Device for reports_masks: {reports_masks.device}")
-            
             images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), \
                                                  reports_masks.to(self.device)
-#             images = images.to(self.device)
-#             reports_ids = reports_ids.to(self.device)
-#             reports_masks = reports_masks.to(self.device)
-
-            output = self.model(images, reports_ids, mode='train')
-
-            loss = self.criterion(output, reports_ids, reports_masks)
+            # 前向传播
+            with autocast():
+                output = self.model(images, reports_ids, mode='train')
+                loss = self.criterion(output, reports_ids, reports_masks)
+            
+            # 反向传播和梯度缩放
             train_loss += loss.item()
             self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            
             if batch_idx % self.args.log_period == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(
                                 epoch, self.epochs, batch_idx, len(self.train_dataloader),
                                 train_loss / (batch_idx + 1))
-                self.logger.info(loss_message)
-#                 print(loss_message)  # 打印到标准输出
+                print(loss_message)
 
-        # 使用您提供的方式来计算平均训练损失并更新log字典
+        end_time = time.time()  # 记录结束时间
+        epoch_time = end_time - start_time  # 计算时间
+
         log = {'train_loss': train_loss / len(self.train_dataloader)}
 
-        end_message = '[{}/{}] End of epoch average training loss: {:.5f}.'.format(epoch, self.epochs, log['train_loss'])
-        self.logger.info(end_message)
-        print(end_message)  # 打印到标准输出
+        end_message = '[{}/{}] End of epoch average training loss: {:.5f}. Epoch Time: {:.2f} seconds'.format(
+            epoch, self.epochs, log['train_loss'], epoch_time)
+        print(end_message)
         
-        self.logger.info('[{}/{}] Start to evaluate in the validation set.'.format(epoch, self.epochs))
+#         print('[{}/{}] Start to evaluate in the validation set.'.format(epoch, self.epochs))
         self.model.eval()
+        start_time = time.time()  # 记录开始时间
 
         with torch.no_grad():
             val_gts, val_res = [], []
@@ -235,23 +252,37 @@ class Trainer(BaseTrainer):
                 ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
                 val_res.extend(reports)
                 val_gts.extend(ground_truths)
+                
+                # 添加随机验证样本的推理文本和原始文本
+                if batch_idx == 0:  # 仅在第一个批次中打印图片信息
+                    image_name = images_id[0]  # 第一个样本的图片名称
+                    # 翻译文本
+                    translated_inference_text = self.translate_to_chinese(reports[0])
+                    translated_ground_truth_text = self.translate_to_chinese(ground_truths[0])
+                    print("Image Name: ", image_name)
+                    print("Inference Text: ", reports[0])
+                    print("Inference Text (Translated):", translated_inference_text)
+                    print("Ground Truth Text: ", ground_truths[0])
+                    print("Ground Truth Text (Translated):", translated_ground_truth_text)
+                    val_res.append(reports[0])
+                    val_gts.append(ground_truths[0])
 
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
                                        {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
 
-            print(f"Epoch {epoch} - Validation Metrics:")
-            for k, v in val_met.items():
-                print(f"{k}: {v}")
-            print()
+        end_time = time.time()  # 记录结束时间
+        val_time = end_time - start_time  # 计算时间
 
-            if self.val_metrics_history is None:
+        if self.val_metrics_history is None:
                 self.val_metrics_history = {k: [] for k in val_met}
-            for k, v in val_met.items():
-                self.val_metrics_history[k].append(v)
+        for k, v in val_met.items():
+            self.val_metrics_history[k].append(v)
 
-        self.logger.info('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
+#         print('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
         self.model.eval()
+
+        start_time = time.time()  # 记录开始时间
 
         with torch.no_grad():
             test_gts, test_res = [], []
@@ -263,77 +294,95 @@ class Trainer(BaseTrainer):
                 ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
                 test_res.extend(reports)
                 test_gts.extend(ground_truths)
+                
+                # 添加随机测试样本的推理文本和原始文本
+                if batch_idx == 0:  # 仅在第一个批次中打印图片信息
+                    image_name = images_id[0]  # 第一个样本的图片名称
+                    # 翻译文本
+                    translated_inference_text = self.translate_to_chinese(reports[0])
+                    translated_ground_truth_text = self.translate_to_chinese(ground_truths[0])
+                    print("Image Name: ", image_name)
+                    print("Inference Text: ", reports[0])
+                    print("Inference Text (Translated):", translated_inference_text)
+                    print("Ground Truth Text: ", ground_truths[0])
+                    print("Ground Truth Text (Translated):", translated_ground_truth_text)
+                    test_res.append(reports[0])
+                    test_gts.append(ground_truths[0])
 
             test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
                                         {i: [re] for i, re in enumerate(test_res)})
             log.update(**{'test_' + k: v for k, v in test_met.items()})
 
-            print(f"Epoch {epoch} - Test Metrics:")
-            for k, v in test_met.items():
-                print(f"{k}: {v}")
-            print()
-
-            if self.test_metrics_history is None:
+        end_time = time.time()  # 记录结束时间
+        test_time = end_time - start_time  # 计算时间
+        if self.test_metrics_history is None:
                 self.test_metrics_history = {k: [] for k in test_met}
-            for k, v in test_met.items():
-                self.test_metrics_history[k].append(v)
+        for k, v in test_met.items():
+            self.test_metrics_history[k].append(v)
+
         
+        # 打印训练时间
+        print(f"[{epoch}/{self.epochs}] Train Time: {epoch_time:.2f} seconds")
+        # 打印验证时间
+        print(f"[{epoch}/{self.epochs}] Validation Time: {val_time:.2f} seconds")
+        # 打印测试时间
+        print(f"[{epoch}/{self.epochs}] Test Time: {test_time:.2f} seconds")
+
         self.train_loss_history.append(log['train_loss'])
         self.lr_scheduler.step()
-        self._plot_metrics()
-        
-        print(log)
+        if epoch % 10 == 0:
+            self._plot_metrics(epoch)
+
         return log
+    
+    def _plot_metrics(self, epoch):
+        # 从 self 对象中获取需要的参数
+        lr_ve = self.lr_ve
+        lr_ed = self.lr_ed
+        step_size = self.step_size
+        gamma = self.gamma
 
+        # 构造包含参数的图片名称
+        image_name = f've_{lr_ve}_ed_{lr_ed}_step_{step_size}_gamma_{gamma}_epoch_{epoch}.png'
 
-    def _plot_metrics(self):
-        # num_metrics现在包括了train_loss，所以要加1
-        num_metrics = len(self.val_metrics_history) + 1
+        # 创建一个图表，包含三个子图
+        plt.figure(figsize=(18, 12))
+        gs = gridspec.GridSpec(2, 2)
 
-        # 创建一个新的图形窗口
-        fig, axs = plt.subplots(num_metrics, 1, figsize=(12, 5*num_metrics))
+        # 绘制训练损失
+        plt.subplot(gs[0, :])
+        plt.plot(self.train_loss_history, label='Training Loss', color='blue')
+        plt.title(f'Training Loss (Epoch {epoch})')
+        plt.xlabel('Batch')
+        plt.ylabel('Loss')
+        plt.legend()
 
-        # 检查保存目录是否存在，不存在则创建
-        save_dir = '/kaggle/working/'
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
+        # 绘制验证指标
+        if self.val_metrics_history is not None:
+            plt.subplot(gs[1, 0])
+            colors = ['green', 'orange', 'red', 'purple', 'brown', 'pink']
+            for i, (metric_name, metric_values) in enumerate(self.val_metrics_history.items()):
+                color = colors[i % len(colors)]
+                plt.plot(metric_values, label=f'Validation {metric_name}', color=color)
+            plt.title(f'Validation Metrics (Epoch {epoch})')
+            plt.xlabel('Epoch')
+            plt.ylabel('Metric Value')
+            plt.legend()
 
-        # 先绘制train_loss
-        epochs = range(1, len(self.train_loss_history) + 1)
-        axs[0].plot(epochs, self.train_loss_history, label='Train Loss')
-        axs[0].set_title("Train Loss over epochs")
-        axs[0].set_xlabel("Epochs")
-        axs[0].set_ylabel("Loss")
-        axs[0].legend()
-        axs[0].grid(True)
+        # 绘制测试指标
+        if self.test_metrics_history is not None:
+            plt.subplot(gs[1, 1])
+            colors = ['green', 'orange', 'red', 'purple', 'brown', 'pink']
+            for i, (metric_name, metric_values) in enumerate(self.test_metrics_history.items()):
+                color = colors[i % len(colors)]
+                plt.plot(metric_values, label=f'Test {metric_name}', color=color)
+            plt.title(f'Test Metrics (Epoch {epoch})')
+            plt.xlabel('Epoch')
+            plt.ylabel('Metric Value')
+            plt.legend()
 
-        # 绘制其他指标
-        for idx, metric_name in enumerate(self.val_metrics_history, start=1):  # 从1开始，因为第0个已经被train_loss使用了
-            epochs = range(1, len(self.val_metrics_history[metric_name]) + 1)
+        plt.tight_layout()
 
-            axs[idx].plot(epochs, self.val_metrics_history[metric_name], label=f'Validation {metric_name}')
-            axs[idx].plot(epochs, self.test_metrics_history[metric_name], label=f'Test {metric_name}', linestyle='--')
-
-            axs[idx].set_title(f"{metric_name} over epochs")
-            axs[idx].set_xlabel("Epochs")
-            axs[idx].set_ylabel(metric_name)
-            axs[idx].legend()
-            axs[idx].grid(True)
-
-        # 如果当前是第5个epoch或者是最后一个epoch，则保存图片
-        current_epoch = len(epochs)
-        if current_epoch % 5 == 0 or current_epoch == max(epochs):
-            # 删除save_dir目录下旧的图片
-            for old_image in os.listdir(save_dir):
-                if "combined_metrics" in old_image:
-                    os.remove(os.path.join(save_dir, old_image))
-
-            plt.savefig(os.path.join(save_dir, f"combined_metrics_epoch_{current_epoch}.png"),dpi=300)
-
-        # 直接显示图形
-        plt.show()
-
-        # 关闭当前图形释放资源
-        plt.close(fig)
-        # 清除当前图形，为下一个指标做准备
-        plt.clf()
+        # 保存图表为图片文件
+        image_path = os.path.join('/kaggle/working/', image_name)  # 替换为你想要保存图像的目录
+        plt.savefig(image_path, dpi=300)
