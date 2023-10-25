@@ -386,8 +386,8 @@ class BaseCMN(AttModel):
     def _save_attns(self, start=False):
         if start:
             self.attention_weights = []
-#         self.attention_weights.append([layer.src_attn.attn.cpu().numpy() for layer in self.model.decoder.layers])
-        self.attention_weights.append([layer.src_attn.attn.cpu().numpy() for layer in self.model.module.decoder.layers])
+        self.attention_weights.append([layer.src_attn.attn.cpu().numpy() for layer in self.model.decoder.layers])
+#         self.attention_weights.append([layer.src_attn.attn.cpu().numpy() for layer in self.model.module.decoder.layers])
 
     def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask):
         if len(state) == 0:
@@ -397,11 +397,11 @@ class BaseCMN(AttModel):
         else:
             ys = torch.cat([state[0][0], it.unsqueeze(1)], dim=1)
             past = state[1:]
-#         out, past = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)).to(memory.device), past=past,
-#                                       memory_matrix=self.memory_matrix)
-        
-        out, past = self.model.module.decode(memory, mask, ys, subsequent_mask(ys.size(1)).to(memory.device), past=past,
+        out, past = self.model.decode(memory, mask, ys, subsequent_mask(ys.size(1)).to(memory.device), past=past,
                                       memory_matrix=self.memory_matrix)
+        
+#         out, past = self.model.module.decode(memory, mask, ys, subsequent_mask(ys.size(1)).to(memory.device), past=past,
+#                                       memory_matrix=self.memory_matrix)
             
         if not self.training:
             self._save_attns(start=len(state) == 0)
