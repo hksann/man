@@ -4,7 +4,6 @@ from abc import abstractmethod
 import time
 import torch
 import random
-import openai
 from numpy import inf
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
