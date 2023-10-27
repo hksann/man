@@ -10,7 +10,9 @@ import matplotlib.gridspec as gridspec
 
 from .base_cmn import BaseCMN
 from torch.cuda.amp import autocast, GradScaler
+# import apex.amp as amp
 from googletrans import Translator
+# from google.cloud import translate_v2
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler):
@@ -199,8 +201,6 @@ class Trainer(BaseTrainer):
         print(logging.getLogger().getEffectiveLevel())
 #         print('[{}/{}] Start to train in the training set.'.format(epoch, self.epochs))
         train_loss = 0
-        random_test_sample_idx = random.randint(0, len(self.test_dataloader) - 1)  # 移至循环外部
-        random_val_sample_idx = random.randint(0, len(self.val_dataloader) - 1)  # 新增，移至循环外部
         self.model.train()
         
         start_time = time.time()  # 记录开始时间
@@ -209,12 +209,13 @@ class Trainer(BaseTrainer):
             
             images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), \
                                                  reports_masks.to(self.device)
+            
             # 前向传播
             with autocast():
                 output = self.model(images, reports_ids, mode='train')
                 loss = self.criterion(output, reports_ids, reports_masks)
             
-            # 反向传播和梯度缩放
+            # 反向传播
             train_loss += loss.item()
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
@@ -245,7 +246,7 @@ class Trainer(BaseTrainer):
             for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.val_dataloader):
                 images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
                     self.device), reports_masks.to(self.device)
-
+                
                 output, _ = self.model(images, mode='sample')
                 reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
@@ -260,9 +261,9 @@ class Trainer(BaseTrainer):
                     translated_ground_truth_text = self.translate_to_chinese(ground_truths[0])
                     print("Image Name: ", image_name)
                     print("Inference Text: ", reports[0])
-                    print("Inference Text (Translated):", translated_inference_text)
+                    print("Inference Text (Val):", translated_inference_text)
                     print("Ground Truth Text: ", ground_truths[0])
-                    print("Ground Truth Text (Translated):", translated_ground_truth_text)
+                    print("Ground Truth Text (Val):", translated_ground_truth_text)
                     val_res.append(reports[0])
                     val_gts.append(ground_truths[0])
 
@@ -302,11 +303,24 @@ class Trainer(BaseTrainer):
                     translated_ground_truth_text = self.translate_to_chinese(ground_truths[0])
                     print("Image Name: ", image_name)
                     print("Inference Text: ", reports[0])
-                    print("Inference Text (Translated):", translated_inference_text)
+                    print("Inference Text (Test):", translated_inference_text)
                     print("Ground Truth Text: ", ground_truths[0])
-                    print("Ground Truth Text (Translated):", translated_ground_truth_text)
+                    print("Ground Truth Text (Test):", translated_ground_truth_text)
                     test_res.append(reports[0])
                     test_gts.append(ground_truths[0])
+                elif batch_idx == 1:  # 仅在第二个批次中打印图片信息
+                    image_name = images_id[1]  # 第二个样本的图片名称
+                    # 翻译文本
+                    translated_inference_text = self.translate_to_chinese(reports[1])
+                    translated_ground_truth_text = self.translate_to_chinese(ground_truths[1])
+                    print("Image Name: ", image_name)
+                    print("Inference Text: ", reports[1])
+                    print("Inference Text (Test):", translated_inference_text)
+                    print("Ground Truth Text: ", ground_truths[1])
+                    print("Ground Truth Text (Test):", translated_ground_truth_text)
+                    test_res.append(reports[1])
+                    test_gts.append(ground_truths[1])
+
 
             test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
                                         {i: [re] for i, re in enumerate(test_res)})
@@ -329,11 +343,11 @@ class Trainer(BaseTrainer):
 
         self.train_loss_history.append(log['train_loss'])
         self.lr_scheduler.step()
-        if epoch % 10 == 0:
+        if epoch % 20 == 0:
             self._plot_metrics(epoch)
 
         return log
-    
+
     def _plot_metrics(self, epoch):
         # 从 self 对象中获取需要的参数
         lr_ve = self.lr_ve
@@ -343,6 +357,13 @@ class Trainer(BaseTrainer):
 
         # 构造包含参数的图片名称
         image_name = f've_{lr_ve}_ed_{lr_ed}_step_{step_size}_gamma_{gamma}_epoch_{epoch}.png'
+        image_path = os.path.join('/kaggle/working/', image_name)  # 新图片路径
+
+        # 删除上一个图片文件（如果存在）
+        previous_image_name = f've_{lr_ve}_ed_{lr_ed}_step_{step_size}_gamma_{gamma}_epoch_{epoch - 1}.png'
+        previous_image_path = os.path.join('/kaggle/working/', previous_image_name)
+        if os.path.exists(previous_image_path):
+            os.remove(previous_image_path)
 
         # 创建一个图表，包含三个子图
         plt.figure(figsize=(18, 12))
@@ -383,5 +404,5 @@ class Trainer(BaseTrainer):
         plt.tight_layout()
 
         # 保存图表为图片文件
-        image_path = os.path.join('/kaggle/working/', image_name)  # 替换为你想要保存图像的目录
         plt.savefig(image_path, dpi=300)
+
