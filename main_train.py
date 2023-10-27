@@ -1,3 +1,5 @@
+%%writefile /kaggle/working/man/main_train.py
+
 import argparse
 
 import numpy as np
@@ -92,6 +94,7 @@ def parse_agrs():
     # Others
     parser.add_argument('--seed', type=int, default=9233, help='.')
     parser.add_argument('--resume', type=str, help='whether to resume the training from existing checkpoints.')
+    parser.add_argument('--pin_memory', type=bool, default=True, help='Whether to use pin_memory')
 
     args = parser.parse_args()
     return args
@@ -111,13 +114,10 @@ def main():
     tokenizer = Tokenizer(args)
 
     # create data loader
-    train_dataloader = R2DataLoader(args, tokenizer, split='train', shuffle=True)
-    val_dataloader = R2DataLoader(args, tokenizer, split='val', shuffle=False)
-    test_dataloader = R2DataLoader(args, tokenizer, split='test', shuffle=False)
+    train_dataloader = R2DataLoader(args, tokenizer, split='train', shuffle=True, pin_memory=True)
+    val_dataloader = R2DataLoader(args, tokenizer, split='val', shuffle=False, pin_memory=True)
+    test_dataloader = R2DataLoader(args, tokenizer, split='test', shuffle=False, pin_memory=True)
 
-    # 确保在数据加载到 GPU 之前启用 pin_memory
-    if torch.cuda.is_available():
-        train_dataloader.pin_memory = True
 
     # build model architecture
     model = BaseCMNModel(args, tokenizer)
