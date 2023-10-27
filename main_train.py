@@ -1,5 +1,3 @@
-%%writefile /kaggle/working/man/main_train.py
-
 import argparse
 
 import numpy as np
