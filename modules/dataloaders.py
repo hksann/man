@@ -7,7 +7,7 @@ from .datasets import IuxrayMultiImageDataset, MimiccxrSingleImageDataset
 
 
 class R2DataLoader(DataLoader):
-    def __init__(self, args, tokenizer, split, shuffle):
+    def __init__(self, args, tokenizer, split, shuffle, pin_memory=True):
         self.args = args
         self.dataset_name = args.dataset_name
         self.batch_size = args.batch_size
@@ -15,6 +15,7 @@ class R2DataLoader(DataLoader):
         self.num_workers = args.num_workers
         self.tokenizer = tokenizer
         self.split = split
+        self.pin_memory = pin_memory  # 添加 pin_memory 参数
 
         if split == 'train':
             self.transform = transforms.Compose([
@@ -42,7 +43,7 @@ class R2DataLoader(DataLoader):
             'shuffle': self.shuffle,
             'collate_fn': self.collate_fn,
             'num_workers': self.num_workers,
-            'pin_memory': True  # 将pin_memory参数传递给DataLoader并设置为True
+            'pin_memory': self.pin_memory  # 将 pin_memory 参数传递给 DataLoader 并设置为构造函数中的值
         }
         super().__init__(**self.init_kwargs)
 
