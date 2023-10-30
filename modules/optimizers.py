@@ -5,7 +5,7 @@ from torch import optim
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
     ed_params = filter(lambda x: id(x) not in ve_params, model.parameters())
-    optimizer = getattr(torch.optim, args.optim)(
+    optimizer = torch.optim.AdamW(
         [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
          {'params': ed_params, 'lr': args.lr_ed}],
         betas=args.adam_betas,
@@ -82,7 +82,7 @@ def get_std_opt(model, optim_func='adam', factor=1, warmup=2000):
 
 
 def build_noamopt_optimizer(args, model):
-    ve_optimizer = getattr(torch.optim, args.optim)(
+    ve_optimizer = torch.optim.AdamW(
         model.visual_extractor.parameters(),
         lr=0,
         betas=args.adam_betas,
@@ -145,7 +145,7 @@ class ReduceLROnPlateau(object):
 
 
 def build_plateau_optimizer(args, model):
-    ve_optimizer = getattr(torch.optim, args.optim)(
+    ve_optimizer = torch.optim.AdamW(
         model.visual_extractor.parameters(),
         lr=args.lr_ve,
         betas=args.adam_betas,
@@ -156,7 +156,7 @@ def build_plateau_optimizer(args, model):
     ve_optimizer = ReduceLROnPlateau(ve_optimizer,
                                      factor=args.reduce_on_plateau_factor,
                                      patience=args.reduce_on_plateau_patience)
-    ed_optimizer = getattr(torch.optim, args.optim)(
+    ed_optimizer = torch.optim.AdamW(
         model.encoder_decoder.parameters(),
         lr=args.lr_ed,
         betas=args.adam_betas,
