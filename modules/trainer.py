@@ -6,12 +6,16 @@ import torch
 import random
 import numpy as np
 from numpy import inf
+import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 from .base_cmn import BaseCMN
 from torch.cuda.amp import autocast, GradScaler
 from googletrans import Translator
+from .loss import compute_loss
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler):
@@ -179,15 +183,12 @@ class Trainer(BaseTrainer):
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
 
-        # 先初始化为None
         self.train_loss_history = []
-        self.val_metrics_history = None
-        self.test_metrics_history = None
+        self.val_metrics_history = {}
+        self.test_metrics_history = {}
         
         self.lr_ve = lr_ve  # 设置 lr_ve 属性
         self.lr_ed = lr_ed  # 设置 lr_ed 属性
-        self.step_size = step_size  # 设置 step_size 属性
-        self.gamma = gamma  # 设置 gamma 属性
     
     def translate_to_chinese(self, text_to_translate):
         # 创建一个Translator对象
@@ -195,172 +196,202 @@ class Trainer(BaseTrainer):
         # 执行文本翻译，从英文到中文
         translated_text = translator.translate(text_to_translate, src='en', dest='zh-cn').text
         return translated_text
-        
+    
     def _train_epoch(self, epoch):
         print(logging.getLogger().getEffectiveLevel())
-#         print('[{}/{}] Start to train in the training set.'.format(epoch, self.epochs))
         train_loss = 0
         self.model.train()
-        
-        start_time = time.time()  # 记录开始时间
+
+        train_start_time = time.time()
 
         for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.train_dataloader):
-            
-            images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), \
-                                                 reports_masks.to(self.device)
-            
-            # 前向传播
+            images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
+
             with autocast():
                 output = self.model(images, reports_ids, mode='train')
                 loss = self.criterion(output, reports_ids, reports_masks)
-            
-            # 反向传播
+
             train_loss += loss.item()
             self.optimizer.zero_grad()
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-            
-            # 修改这里的条件以便每50步打印一次
+
             if batch_idx % 50 == 0:
-                loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(
-                                epoch, self.epochs, batch_idx, len(self.train_dataloader),
-                                train_loss / (batch_idx + 1))
+                loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
-                
-        end_time = time.time()  # 记录结束时间
-        epoch_time = end_time - start_time  # 计算时间
 
+        train_end_time = time.time()
+        train_time = train_end_time - train_start_time
         log = {'train_loss': train_loss / len(self.train_dataloader)}
+        print(f"[{epoch}/{self.epochs}] End of epoch average training loss: {log['train_loss']:.5f}. Epoch Time: {train_time:.2f} seconds")
 
-        end_message = '[{}/{}] End of epoch average training loss: {:.5f}. Epoch Time: {:.2f} seconds'.format(
-            epoch, self.epochs, log['train_loss'], epoch_time)
-        print(end_message)
-        
-#         print('[{}/{}] Start to evaluate in the validation set.'.format(epoch, self.epochs))
+        # 验证部分
+        val_start_time = time.time()
         self.model.eval()
-
+        val_loss = 0
         with torch.no_grad():
             val_gts, val_res = [], []
             for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.val_dataloader):
-                if batch_idx < 2:  # 仅处理前两个批次
-                    images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
-                        self.device), reports_masks.to(self.device)
+                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
 
-                    output, _ = self.model(images, mode='sample')
-                    reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
-                    ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-                    val_res.extend(reports)
-                    val_gts.extend(ground_truths)
+                output, _ = self.model(images, mode='sample')
+                reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
+                ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+                val_res.extend(reports)
+                val_gts.extend(ground_truths)
 
-                    # 在第一个批次中随机选择两张图片并打印信息
-                    if batch_idx == 0:
-                        random_indices = np.random.choice(len(images_id), 2, replace=False)  # 随机选择两个索引
-                        for idx in random_indices:
-                            image_name = images_id[idx]  # 图片id
-                            translated_inference_text = self.translate_to_chinese(reports[idx])  # 翻译推理文本
-                            translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])  # 翻译地面真实文本
+                # 计算损失
+                loss = self.criterion(output, reports_ids[:, 1:], reports_masks[:, 1:])
+                val_loss += loss.item()
 
-                            print("Validation Set - Image Name: " + image_name)
-                            print("\033[31mValidation Set - Inference Text: " + reports[idx] + "\033[0m")  # 红色
-                            print("Validation Set - Inference Text (Translated): " + translated_inference_text)
-                            print("Validation Set - Ground Truth Text: " + ground_truths[idx])
-                            print("Validation Set - Ground Truth Text (Translated): " + translated_ground_truth_text)
+                # 在第一个批次中随机选择两张图片并打印信息
+                if batch_idx == 0:
+                    random_indices = np.random.choice(len(images_id), 2, replace=False)  # 随机选择两个索引
+                    for idx in random_indices:
+                        image_name = images_id[idx]  # 图片id
+                        translated_inference_text = self.translate_to_chinese(reports[idx])  # 翻译推理文本
+                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])  # 翻译地面真实文本
+
+                        # 修改后的验证集打印代码
+                        print(f"Validation Set - Image Name: {image_name}")
+                        print(f"\033[31mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")  # 红色
+                        print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
+
+            val_loss_avg = val_loss / len(self.val_dataloader)
+            log['val_loss'] = val_loss_avg
+
+            # 使用 ReduceLROnPlateau 更新学习率
+            self.lr_scheduler.step(val_loss_avg)
+            
+            # 获取更新后的学习率并以科学记数法打印
+            current_lr_ve = self.optimizer.param_groups[0]['lr']
+            current_lr_ed = self.optimizer.param_groups[1]['lr']
+            print(f"Updated Learning Rate for Visual Extractor (VE): {current_lr_ve:.2e}")
+            print(f"Updated Learning Rate for Encoder-Decoder (ED): {current_lr_ed:.2e}")
+
 
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
                                        {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
-
+        
+        # 验证结束后获取时间戳
+        val_end_time = time.time()
+        # 计算验证过程花费的时间
+        val_time = val_end_time - val_start_time
+        
+        test_start_time = time.time()  # 记录测试开始时间
         self.logger.info('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
         self.model.eval()
 
         with torch.no_grad():
             test_gts, test_res = [], []
             for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.test_dataloader):
-                if batch_idx < 2:  # 仅处理前两个批次
-                    images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
-                        self.device), reports_masks.to(self.device)
-                    output, _ = self.model(images, mode='sample')
-                    reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
-                    ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-                    test_res.extend(reports)
-                    test_gts.extend(ground_truths)
+                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
+                output, _ = self.model(images, mode='sample')
+                reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
+                ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+                test_res.extend(reports)
+                test_gts.extend(ground_truths)
 
-                    # 在第一个批次中随机选择两张图片并打印信息
-                    if batch_idx == 0:
-                        random_indices = np.random.choice(len(images_id), 2, replace=False)  # 随机选择两个索引
-                        for idx in random_indices:
-                            image_name = images_id[idx]  # 图片id
-                            translated_inference_text = self.translate_to_chinese(reports[idx])  # 翻译推理文本
-                            translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])  # 翻译地面真实文本
+                if batch_idx == 0:
+                    random_indices = np.random.choice(len(images_id), 2, replace=False)
+                    for idx in random_indices:
+                        image_name = images_id[idx]
+                        translated_inference_text = self.translate_to_chinese(reports[idx])
+                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
-                            print("Test Set - Image Name: " + image_name)
-                            print("\033[31mTest Set - Inference Text: " + reports[idx] + "\033[0m")  # 红色
-                            print("Test Set - Inference Text (Translated): " + translated_inference_text)
-                            print("Test Set - Ground Truth Text: " + ground_truths[idx])
-                            print("Test Set - Ground Truth Text (Translated): " + translated_ground_truth_text)
+                        # 测试集打印代码
+                        print(f"Test Set - Image Name: {image_name}")
+                        print(f"\033[31mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")  # 红色
+                        print(f"Test Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
-            test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
-                                        {i: [re] for i, re in enumerate(test_res)})
+            test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)}, {i: [re] for i, re in enumerate(test_res)})
             log.update(**{'test_' + k: v for k, v in test_met.items()})
 
-        self.lr_scheduler.step()
-        # 打印训练时间
-        print(f"[{epoch}/{self.epochs}] Train Time: {epoch_time:.2f} seconds")
+        test_end_time = time.time()  # 记录测试结束时间
+        test_time = test_end_time - test_start_time  # 计算测试时间
+
+        # 每五个 epoch 绘制和保存指标图表
+        if epoch % 1 == 0:
+            title = f"Epoch: {epoch}, LR VE: {self.lr_ve}, LR ED: {self.lr_ed}"
+            self._plot_metrics(epoch, title)
+
+        # 打印训练、验证和测试时间
+        print(f"[{epoch}/{self.epochs}] Train Time: {train_time:.2f} seconds")
         print(f"[{epoch}/{self.epochs}] Validation Time: {val_time:.2f} seconds")
         print(f"[{epoch}/{self.epochs}] Test Time: {test_time:.2f} seconds")
-        
+
         return log
+    
+    def generate_image_path(self, epoch, prefix=''):
+        """
+        生成图表的保存路径。
+        :param epoch: 当前的训练周期。
+        :param prefix: 文件名前缀。
+        :return: 图表的文件路径。
+        """
+        image_name = f'{prefix}_epoch_{epoch}.png'
+        return os.path.join('/kaggle/working/', image_name)
+    
+    def _plot_metrics(self, epoch, title=''):
+        """
+        绘制并保存指标图表。
+        :param epoch: 当前的训练周期。
+        :param title: 图表的标题，用于区分不同类型的图表。
+        """
+        try:
+            # 删除上一个图片文件（如果存在）
+            previous_image_path = self.generate_image_path(epoch - 1, title)
+            if os.path.exists(previous_image_path):
+                os.remove(previous_image_path)
 
-    def generate_image_path(epoch, prefix=''):
-        # 从 self 对象中获取需要的参数
-        lr_ve = self.lr_ve
-        lr_ed = self.lr_ed
-        step_size = self.step_size
-        gamma = self.gamma
+            # 创建图表
+            plt.figure(figsize=(18, 12))
+            gs = gridspec.GridSpec(2, 2)
 
-        image_name = f'{prefix}ve_{lr_ve}_ed_{lr_ed}_step_{step_size}_gamma_{gamma}_epoch_{epoch}.png'
-        image_path = os.path.join('/kaggle/working/', image_name)  # 新图片路径
+            # 绘制训练损失
+            plt.subplot(gs[0, :])
+            plt.plot(self.train_loss_history, label='Training Loss', color='blue')
+            plt.title(f'Training Loss (Epoch {epoch})', fontsize=20)
+            plt.xlabel('Batch', fontsize=15)
+            plt.ylabel('Loss', fontsize=15)
+            plt.legend(fontsize=12)
+            plt.grid(True)
 
-        return image_path
+            # 绘制验证和测试指标
+            self.plot_individual_metrics(self.val_metrics_history, 'Validation', gs[1, 0], epoch)
+            self.plot_individual_metrics(self.test_metrics_history, 'Test', gs[1, 1], epoch)
 
-    def _plot_metrics(self, epoch):
-        # 删除上一个图片文件（如果存在）
-        previous_image_path = self.generate_image_path(epoch - 1)
-        if os.path.exists(previous_image_path):
-            os.remove(previous_image_path)
+            plt.suptitle(title, fontsize=20)  # 使用提供的标题
+            plt.tight_layout()
 
-        # 创建一个图表，包含三个子图
-        plt.figure(figsize=(18, 12))
-        gs = gridspec.GridSpec(2, 2)
+            # 保存图表为图片文件
+            image_path = self.generate_image_path(epoch, title)
+            plt.savefig(image_path, dpi=300)
+            plt.close()  # 关闭图形以节约内存
+        except Exception as e:
+            print(f"Error occurred during plotting: {e}")
+        finally:
+            plt.close()
 
-        # 绘制训练损失
-        plt.subplot(gs[0, :])
-        plt.plot(self.train_loss_history, label='Training Loss', color='blue')
-        plt.title(f'Training Loss (Epoch {epoch})')
-        plt.xlabel('Batch')
-        plt.ylabel('Loss')
-        plt.legend()
-
-        # 绘制指标的辅助函数
-        def plot_metrics(metrics_history, title_prefix, subplot_idx):
-            if metrics_history is not None:
-                plt.subplot(gs[1, subplot_idx])
-                colors = ['green', 'orange', 'red', 'purple', 'brown', 'pink']
-                for i, (metric_name, metric_values) in enumerate(metrics_history.items()):
-                    color = colors[i % len(colors)]
-                    plt.plot(metric_values, label=f'{title_prefix} {metric_name}', color=color)
-                plt.title(f'{title_prefix} Metrics (Epoch {epoch})')
-                plt.xlabel('Epoch')
-                plt.ylabel('Metric Value')
-                plt.legend()
-
-        # 绘制验证和测试指标
-        plot_metrics(self.val_metrics_history, 'Validation', 0)
-        plot_metrics(self.test_metrics_history, 'Test', 1)
-
-        plt.tight_layout()
-
-        # 保存图表为图片文件
-        image_path = self.generate_image_path(epoch)
-        plt.savefig(image_path, dpi=300)
+    def plot_individual_metrics(self, metrics_history, title_prefix, subplot_index, epoch):
+        """
+        绘制单个指标图表。
+        :param metrics_history: 指标历史数据。
+        :param title_prefix: 图表标题前缀。
+        :param subplot_index: 子图索引。
+        :param epoch: 当前的训练周期。
+        """
+        if metrics_history is not None:
+            plt.subplot(subplot_index)
+            colors = sns.color_palette('husl', n_colors=len(metrics_history))
+            linestyles = ['-', '--', '-.', ':']
+            markers = ['o', 's', 'D', '^', 'v', '<', '>']
+            for i, (metric_name, metric_values) in enumerate(metrics_history.items()):
+                plt.plot(metric_values, label=f'{title_prefix} {metric_name}', color=colors[i], linestyle=linestyles[i % len(linestyles)], marker=markers[i % len(markers)])
+            plt.title(f'{title_prefix} Metrics (Epoch {epoch})', fontsize=20)
+            plt.xlabel('Epoch', fontsize=15)
+            plt.ylabel('Metric Value', fontsize=15)
+            plt.legend(fontsize=12, loc='upper left', bbox_to_anchor=(1, 1))
+            plt.grid(True)
