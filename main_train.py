@@ -1,5 +1,4 @@
 import argparse
-
 import numpy as np
 import torch
 
@@ -10,6 +9,8 @@ from modules.metrics import compute_scores
 from modules.optimizers import build_optimizer, build_lr_scheduler
 from modules.tokenizers import Tokenizer
 from modules.trainer import Trainer
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
 
 
 def parse_agrs():
@@ -78,8 +79,8 @@ def parse_agrs():
     parser.add_argument('--lr_ve', type=float, default=5e-5, help='the learning rate for the visual extractor.')
     parser.add_argument('--lr_ed', type=float, default=7e-4, help='the learning rate for the remaining parameters.')
     parser.add_argument('--weight_decay', type=float, default=5e-5, help='the weight decay.')
-    parser.add_argument('--adam_betas', type=tuple, default=(0.9, 0.98), help='the weight decay.')
-    parser.add_argument('--adam_eps', type=float, default=1e-9, help='the weight decay.')
+    parser.add_argument('--adam_betas', type=tuple, default=(0.9, 0.999), help='the weight decay.')
+    parser.add_argument('--adam_eps', type=float, default=1e-8, help='the weight decay.')
     parser.add_argument('--amsgrad', type=bool, default=True, help='.')
     parser.add_argument('--noamopt_warmup', type=int, default=5000, help='.')
     parser.add_argument('--noamopt_factor', type=int, default=1, help='.')
@@ -89,12 +90,25 @@ def parse_agrs():
     parser.add_argument('--step_size', type=int, default=50, help='the step size of the learning rate scheduler.')
     parser.add_argument('--gamma', type=float, default=0.1, help='the gamma of the learning rate scheduler.')
 
+    # ReduceLROnPlateau
+    parser.add_argument('--reduce_factor', type=float, default=0.1, help='Factor by which the learning rate will be reduced. new_lr = lr * factor.')
+    parser.add_argument('--reduce_patience', type=int, default=10, help='Number of epochs with no improvement after which learning rate will be reduced.')
+    parser.add_argument('--reduce_verbose', type=bool, default=False, help='If True, prints a message to stdout for each update.')
+    parser.add_argument('--reduce_lr_threshold', type=float, default=0.0001, help='Threshold for measuring the new optimum, to only focus on significant changes.')
+    parser.add_argument('--reduce_cooldown', type=int, default=0, help='Number of epochs to wait before resuming normal operation after lr has been reduced.')
+    parser.add_argument('--reduce_min_lr', type=float, default=0, help='A lower bound on the learning rate of all param groups or each group respectively.')
+    parser.add_argument('--reduce_eps', type=float, default=1e-8, help='Minimal decay applied to lr.')
+    parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
+
     # Others
     parser.add_argument('--seed', type=int, default=9233, help='.')
     parser.add_argument('--resume', type=str, help='whether to resume the training from existing checkpoints.')
     parser.add_argument('--pin_memory', type=bool, default=True, help='Whether to use pin_memory')
 
     args = parser.parse_args()
+    # 现在可以安全地访问 args 中的值
+    print("Learning rate scheduler:", args.lr_scheduler)
+    print("optim:", args.optim)
     return args
 
 
@@ -132,8 +146,6 @@ def main():
     trainer = Trainer(model, criterion, metrics, optimizer, args, lr_scheduler,
                       train_dataloader, val_dataloader, test_dataloader, args.lr_ve, args.lr_ed, args.step_size, args.gamma)
     trainer.train()
-
-
 
 if __name__ == '__main__':
     main()
