@@ -1,23 +1,37 @@
 import torch
 from torch import optim
-
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
     ed_params = filter(lambda x: id(x) not in ve_params, model.parameters())
-    optimizer = torch.optim.AdamW(
+    # 使用AdamW作为优化器
+    optimizer = optim.AdamW(
         [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
          {'params': ed_params, 'lr': args.lr_ed}],
         betas=args.adam_betas,
         eps=args.adam_eps,
-        weight_decay=args.weight_decay,
-        amsgrad=args.amsgrad
+        weight_decay=args.weight_decay
     )
     return optimizer
 
-
 def build_lr_scheduler(args, optimizer):
-    lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(optimizer, args.step_size, args.gamma)
+    # 使用ReduceLROnPlateau作为学习率调度器
+    if args.lr_scheduler == 'ReduceLROnPlateau':
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='min',  # 假设我们是最小化损失
+            factor=args.reduce_factor,  # 学习率减少的因子
+            patience=args.reduce_patience,  # 无改善的周期数
+            verbose=True
+        )
+    else:
+        # 其他类型的调度器初始化
+        lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
+            optimizer, 
+            args.step_size, 
+            args.gamma
+        )
     return lr_scheduler
 
 
@@ -82,7 +96,7 @@ def get_std_opt(model, optim_func='adam', factor=1, warmup=2000):
 
 
 def build_noamopt_optimizer(args, model):
-    ve_optimizer = torch.optim.AdamW(
+    ve_optimizer = getattr(torch.optim, args.optim)(
         model.visual_extractor.parameters(),
         lr=0,
         betas=args.adam_betas,
@@ -145,7 +159,7 @@ class ReduceLROnPlateau(object):
 
 
 def build_plateau_optimizer(args, model):
-    ve_optimizer = torch.optim.AdamW(
+    ve_optimizer = getattr(torch.optim, args.optim)(
         model.visual_extractor.parameters(),
         lr=args.lr_ve,
         betas=args.adam_betas,
@@ -156,7 +170,7 @@ def build_plateau_optimizer(args, model):
     ve_optimizer = ReduceLROnPlateau(ve_optimizer,
                                      factor=args.reduce_on_plateau_factor,
                                      patience=args.reduce_on_plateau_patience)
-    ed_optimizer = torch.optim.AdamW(
+    ed_optimizer = getattr(torch.optim, args.optim)(
         model.encoder_decoder.parameters(),
         lr=args.lr_ed,
         betas=args.adam_betas,
