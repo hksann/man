@@ -15,6 +15,7 @@ from torch.cuda.amp import autocast, GradScaler
 from googletrans import Translator
 from .loss import compute_loss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from .optimizers import build_lr_scheduler
 
 
 class BaseTrainer(object):
@@ -36,7 +37,6 @@ class BaseTrainer(object):
         self.criterion = criterion
         self.optimizer = optimizer
         self.metric_ftns = metric_ftns
-        self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
 
         self.epochs = self.args.epochs
@@ -175,10 +175,14 @@ class BaseTrainer(object):
         print("Checkpoint loaded. Resume training from epoch {}".format(self.start_epoch))
 
 class Trainer(BaseTrainer):
+    # 定义 ANSI 颜色代码作为类的静态属性
+    BLUE = "\033[34m"
+    ENDC = "\033[0m"
     
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler, train_dataloader,
                  val_dataloader, test_dataloader, lr_ve, lr_ed, step_size, gamma):
         super(Trainer, self).__init__(model, criterion, metric_ftns, optimizer, args, lr_scheduler)
+        self.scheduler = build_lr_scheduler(args, optimizer)
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
@@ -223,13 +227,15 @@ class Trainer(BaseTrainer):
 
         train_end_time = time.time()
         train_time = train_end_time - train_start_time
-        log = {'train_loss': train_loss / len(self.train_dataloader)}
+        avg_train_loss = train_loss / len(self.train_dataloader)
+        self.train_loss_history.append(avg_train_loss)  # 更新训练损失历史记录
+        log = {'train_loss': avg_train_loss}
         print(f"[{epoch}/{self.epochs}] End of epoch average training loss: {log['train_loss']:.5f}. Epoch Time: {train_time:.2f} seconds")
 
         # 验证部分
         val_start_time = time.time()
         self.model.eval()
-        val_loss = 0
+        val_gts, val_res = [], []
         with torch.no_grad():
             val_gts, val_res = [], []
             for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.val_dataloader):
@@ -240,10 +246,6 @@ class Trainer(BaseTrainer):
                 ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
                 val_res.extend(reports)
                 val_gts.extend(ground_truths)
-
-                # 计算损失
-                loss = self.criterion(output, reports_ids[:, 1:], reports_masks[:, 1:])
-                val_loss += loss.item()
 
                 # 在第一个批次中随机选择两张图片并打印信息
                 if batch_idx == 0:
@@ -258,28 +260,33 @@ class Trainer(BaseTrainer):
                         print(f"\033[31mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")  # 红色
                         print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
-            val_loss_avg = val_loss / len(self.val_dataloader)
-            log['val_loss'] = val_loss_avg
 
-            # 使用 ReduceLROnPlateau 更新学习率
-            self.lr_scheduler.step(val_loss_avg)
-            
-            # 获取更新后的学习率并以科学记数法打印
-            current_lr_ve = self.optimizer.param_groups[0]['lr']
-            current_lr_ed = self.optimizer.param_groups[1]['lr']
-            print(f"Updated Learning Rate for Visual Extractor (VE): {current_lr_ve:.2e}")
-            print(f"Updated Learning Rate for Encoder-Decoder (ED): {current_lr_ed:.2e}")
-
-
+            # 计算验证集的BLEU分数和其他指标
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
                                        {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
+            
+            # 计算综合分数
+            composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] +
+                               val_met['METEOR'] + val_met['ROUGE_L']) / 6
+            self.scheduler.step(composite_score)  # 使用综合分数更新学习率调度器
+
+            # 获取当前的学习率
+            current_lr_ve = self.optimizer.param_groups[0]['lr']
+            current_lr_ed = self.optimizer.param_groups[1]['lr']
+            print(f"{Trainer.BLUE}    --lr_ve {current_lr_ve:.1e} \\{Trainer.ENDC}")
+            print(f"{Trainer.BLUE}    --lr_ed {current_lr_ed:.1e} \\{Trainer.ENDC}")
+
         
         # 验证结束后获取时间戳
         val_end_time = time.time()
         # 计算验证过程花费的时间
         val_time = val_end_time - val_start_time
-        
+        for metric_name, metric_value in val_met.items():
+            if metric_name not in self.val_metrics_history:
+                self.val_metrics_history[metric_name] = []
+            self.val_metrics_history[metric_name].append(metric_value)
+
         test_start_time = time.time()  # 记录测试开始时间
         self.logger.info('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
         self.model.eval()
@@ -311,12 +318,18 @@ class Trainer(BaseTrainer):
 
         test_end_time = time.time()  # 记录测试结束时间
         test_time = test_end_time - test_start_time  # 计算测试时间
-
+        
+        # 更新测试指标历史记录
+        for metric_name, metric_value in test_met.items():
+            if metric_name not in self.test_metrics_history:
+                self.test_metrics_history[metric_name] = []
+            self.test_metrics_history[metric_name].append(metric_value)
+        
         # 每五个 epoch 绘制和保存指标图表
         if epoch % 1 == 0:
             title = f"Epoch: {epoch}, LR VE: {self.lr_ve}, LR ED: {self.lr_ed}"
             self._plot_metrics(epoch, title)
-
+    
         # 打印训练、验证和测试时间
         print(f"[{epoch}/{self.epochs}] Train Time: {train_time:.2f} seconds")
         print(f"[{epoch}/{self.epochs}] Validation Time: {val_time:.2f} seconds")
@@ -324,74 +337,62 @@ class Trainer(BaseTrainer):
 
         return log
     
-    def generate_image_path(self, epoch, prefix=''):
-        """
-        生成图表的保存路径。
-        :param epoch: 当前的训练周期。
-        :param prefix: 文件名前缀。
-        :return: 图表的文件路径。
-        """
-        image_name = f'{prefix}_epoch_{epoch}.png'
-        return os.path.join('/kaggle/working/', image_name)
-    
     def _plot_metrics(self, epoch, title=''):
-        """
-        绘制并保存指标图表。
-        :param epoch: 当前的训练周期。
-        :param title: 图表的标题，用于区分不同类型的图表。
-        """
         try:
-            # 删除上一个图片文件（如果存在）
-            previous_image_path = self.generate_image_path(epoch - 1, title)
-            if os.path.exists(previous_image_path):
-                os.remove(previous_image_path)
+            # 构建当前图表的文件路径
+            current_image_path = f'/kaggle/working/metrics_epoch_{epoch}_{title}.png'
+
+            # 查找并删除之前的图表文件
+            for previous_image in os.listdir('/kaggle/working/'):
+                if previous_image.startswith(f'metrics_epoch_') and previous_image.endswith('.png'):
+                    os.remove(f'/kaggle/working/{previous_image}')
 
             # 创建图表
-            plt.figure(figsize=(18, 12))
-            gs = gridspec.GridSpec(2, 2)
+            plt.figure(figsize=(18, 18))
+            gs = gridspec.GridSpec(3, 1)
 
             # 绘制训练损失
-            plt.subplot(gs[0, :])
+            plt.subplot(gs[0])
             plt.plot(self.train_loss_history, label='Training Loss', color='blue')
             plt.title(f'Training Loss (Epoch {epoch})', fontsize=20)
-            plt.xlabel('Batch', fontsize=15)
+            plt.xlabel('Epoch', fontsize=15)
             plt.ylabel('Loss', fontsize=15)
             plt.legend(fontsize=12)
             plt.grid(True)
 
-            # 绘制验证和测试指标
-            self.plot_individual_metrics(self.val_metrics_history, 'Validation', gs[1, 0], epoch)
-            self.plot_individual_metrics(self.test_metrics_history, 'Test', gs[1, 1], epoch)
+            # 绘制验证评价指标
+            plt.subplot(gs[1])
+            avg_val_metrics = np.mean([v for k, v in self.val_metrics_history.items() if k != 'BLEU_4'], axis=0)
+            plt.plot(avg_val_metrics, label='Average Validation Metrics', color='green')
+            if 'BLEU_4' in self.val_metrics_history:
+                plt.plot(self.val_metrics_history['BLEU_4'], label='BLEU_4', color='red')
+            plt.title('Validation Metrics', fontsize=20)
+            plt.xlabel('Epoch', fontsize=15)
+            plt.ylabel('Metric Value', fontsize=15)
+            plt.legend(fontsize=12)
+            plt.grid(True)
 
-            plt.suptitle(title, fontsize=20)  # 使用提供的标题
+            # 绘制测试评价指标
+            plt.subplot(gs[2])
+            avg_test_metrics = np.mean([v for k, v in self.test_metrics_history.items() if k != 'BLEU_4'], axis=0)
+            plt.plot(avg_test_metrics, label='Average Test Metrics', color='orange')
+            if 'BLEU_4' in self.test_metrics_history:
+                plt.plot(self.test_metrics_history['BLEU_4'], label='BLEU_4', color='purple')
+            plt.title('Test Metrics', fontsize=20)
+            plt.xlabel('Epoch', fontsize=15)
+            plt.ylabel('Metric Value', fontsize=15)
+            plt.legend(fontsize=12)
+            plt.grid(True)
+
+            # 使用lr_ve和lr_ed设置图表标题
+            chart_title = f'LR VE: {self.lr_ve}, LR ED: {self.lr_ed}, {title}'
+            plt.suptitle(chart_title, fontsize=24)
             plt.tight_layout()
 
-            # 保存图表为图片文件
-            image_path = self.generate_image_path(epoch, title)
-            plt.savefig(image_path, dpi=300)
-            plt.close()  # 关闭图形以节约内存
+            # 保存图表
+            plt.savefig(current_image_path, dpi=300)
+            plt.close()
         except Exception as e:
             print(f"Error occurred during plotting: {e}")
         finally:
             plt.close()
-
-    def plot_individual_metrics(self, metrics_history, title_prefix, subplot_index, epoch):
-        """
-        绘制单个指标图表。
-        :param metrics_history: 指标历史数据。
-        :param title_prefix: 图表标题前缀。
-        :param subplot_index: 子图索引。
-        :param epoch: 当前的训练周期。
-        """
-        if metrics_history is not None:
-            plt.subplot(subplot_index)
-            colors = sns.color_palette('husl', n_colors=len(metrics_history))
-            linestyles = ['-', '--', '-.', ':']
-            markers = ['o', 's', 'D', '^', 'v', '<', '>']
-            for i, (metric_name, metric_values) in enumerate(metrics_history.items()):
-                plt.plot(metric_values, label=f'{title_prefix} {metric_name}', color=colors[i], linestyle=linestyles[i % len(linestyles)], marker=markers[i % len(markers)])
-            plt.title(f'{title_prefix} Metrics (Epoch {epoch})', fontsize=20)
-            plt.xlabel('Epoch', fontsize=15)
-            plt.ylabel('Metric Value', fontsize=15)
-            plt.legend(fontsize=12, loc='upper left', bbox_to_anchor=(1, 1))
-            plt.grid(True)
