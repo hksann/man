@@ -75,28 +75,30 @@ def parse_agrs():
     parser.add_argument('--early_stop', type=int, default=50, help='the patience of training.')
 
     # Optimization
-    parser.add_argument('--optim', type=str, default='Adam', help='the type of the optimizer.')
+    parser.add_argument('--optim', type=str, default='AdamW', help='the type of the optimizer.')
     parser.add_argument('--lr_ve', type=float, default=5e-5, help='the learning rate for the visual extractor.')
-    parser.add_argument('--lr_ed', type=float, default=7e-4, help='the learning rate for the remaining parameters.')
+    parser.add_argument('--lr_ed', type=float, default=7e-4, help='the learning rate for the encoder-decoder.')
     parser.add_argument('--weight_decay', type=float, default=5e-5, help='the weight decay.')
-    parser.add_argument('--adam_betas', type=tuple, default=(0.9, 0.999), help='the weight decay.')
-    parser.add_argument('--adam_eps', type=float, default=1e-8, help='the weight decay.')
-    parser.add_argument('--amsgrad', type=bool, default=True, help='.')
-    parser.add_argument('--noamopt_warmup', type=int, default=5000, help='.')
-    parser.add_argument('--noamopt_factor', type=int, default=1, help='.')
+    parser.add_argument('--adam_betas', type=tuple, default=(0.9, 0.999), help='betas for Adam optimizer.')
+    parser.add_argument('--adam_eps', type=float, default=1e-8, help='eps for Adam optimizer.')
+    parser.add_argument('--amsgrad', type=bool, default=True, help='Whether to use the AMSGrad variant of Adam.')
+
+    # Noam Optimizer Specific Args
+    parser.add_argument('--noamopt_warmup', type=int, default=5000, help='Number of warmup steps for NoamOpt.')
+    parser.add_argument('--noamopt_factor', type=int, default=1, help='Factor for NoamOpt.')
 
     # Learning Rate Scheduler
-    parser.add_argument('--lr_scheduler', type=str, default='StepLR', help='the type of the learning rate scheduler.')
-    parser.add_argument('--step_size', type=int, default=50, help='the step size of the learning rate scheduler.')
-    parser.add_argument('--gamma', type=float, default=0.1, help='the gamma of the learning rate scheduler.')
+    parser.add_argument('--lr_scheduler', type=str, default='ReduceLROnPlateau', help='the type of the learning rate scheduler.')
+    parser.add_argument('--step_size', type=int, default=50, help='the step size for StepLR.')
+    parser.add_argument('--gamma', type=float, default=0.1, help='the gamma for StepLR.')
 
-    # ReduceLROnPlateau
+    # ReduceLROnPlateau Specific Args
     parser.add_argument('--reduce_factor', type=float, default=0.1, help='Factor by which the learning rate will be reduced. new_lr = lr * factor.')
     parser.add_argument('--reduce_patience', type=int, default=10, help='Number of epochs with no improvement after which learning rate will be reduced.')
-    parser.add_argument('--reduce_verbose', type=bool, default=False, help='If True, prints a message to stdout for each update.')
-    parser.add_argument('--reduce_lr_threshold', type=float, default=0.0001, help='Threshold for measuring the new optimum, to only focus on significant changes.')
+    parser.add_argument('--reduce_verbose', type=bool, default=True, help='If True, prints a message to stdout for each update.')
+    parser.add_argument('--reduce_lr_threshold', type=float, default=0.01, help='Threshold for measuring the new optimum, to only focus on significant changes.')
     parser.add_argument('--reduce_cooldown', type=int, default=0, help='Number of epochs to wait before resuming normal operation after lr has been reduced.')
-    parser.add_argument('--reduce_min_lr', type=float, default=0, help='A lower bound on the learning rate of all param groups or each group respectively.')
+    parser.add_argument('--reduce_min_lr', type=float, default=0, help='A lower bound on the learning rate of all param groups.')
     parser.add_argument('--reduce_eps', type=float, default=1e-8, help='Minimal decay applied to lr.')
     parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
 
