@@ -1,6 +1,6 @@
 import torch
 from torch import optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
+
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
@@ -20,10 +20,12 @@ def build_lr_scheduler(args, optimizer):
     if args.lr_scheduler == 'ReduceLROnPlateau':
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, 
-            mode='min',  # 假设我们是最小化损失
+            mode='max',  # 假设我们是最大化BLEU分数
             factor=args.reduce_factor,  # 学习率减少的因子
             patience=args.reduce_patience,  # 无改善的周期数
-            verbose=True
+            verbose=True,
+            threshold=0.01,  # 定义显著改善的阈值
+            threshold_mode='rel'  # 相对改善
         )
     else:
         # 其他类型的调度器初始化
@@ -34,11 +36,9 @@ def build_lr_scheduler(args, optimizer):
         )
     return lr_scheduler
 
-
 def set_lr(optimizer, lr):
     for group in optimizer.param_groups:
         group['lr'] = lr
-
 
 def get_lr(optimizer):
     for group in optimizer.param_groups:
@@ -112,7 +112,7 @@ def build_noamopt_optimizer(args, model):
 class ReduceLROnPlateau(object):
     "Optim wrapper that implements rate."
 
-    def __init__(self, optimizer, mode='min', factor=0.1, patience=10, verbose=False, threshold=0.0001,
+    def __init__(self, optimizer, mode='max', factor=0.1, patience=10, verbose=False, threshold=0.01,
                  threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08):
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode=mode, factor=factor,
                                                               patience=patience, verbose=verbose, threshold=threshold,
@@ -125,8 +125,8 @@ class ReduceLROnPlateau(object):
         "Update parameters and rate"
         self.optimizer.step()
 
-    def scheduler_step(self, val):
-        self.scheduler.step(val)
+    def scheduler_step(self, metric_value):
+        self.scheduler.step(metric_value)
         self.current_lr = get_lr(self.optimizer)
 
     def state_dict(self):
@@ -138,9 +138,9 @@ class ReduceLROnPlateau(object):
         if 'current_lr' not in state_dict:
             # it's normal optimizer
             self.optimizer.load_state_dict(state_dict)
-            set_lr(self.optimizer, self.current_lr)  # use the lr fromt the option
+            set_lr(self.optimizer, self.current_lr)  # use the lr from the option
         else:
-            # it's a schduler
+            # it's a scheduler
             self.current_lr = state_dict['current_lr']
             self.scheduler.load_state_dict(state_dict['scheduler_state_dict'])
             self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
