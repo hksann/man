@@ -97,8 +97,8 @@ def parse_agrs():
     parser.add_argument('--reduce_patience', type=int, default=10, help='Number of epochs with no improvement after which learning rate will be reduced.')
     parser.add_argument('--reduce_verbose', type=bool, default=True, help='If True, prints a message to stdout for each update.')
     parser.add_argument('--reduce_lr_threshold', type=float, default=0.01, help='Threshold for measuring the new optimum, to only focus on significant changes.')
-    parser.add_argument('--reduce_cooldown', type=int, default=0, help='Number of epochs to wait before resuming normal operation after lr has been reduced.')
-    parser.add_argument('--reduce_min_lr', type=float, default=0, help='A lower bound on the learning rate of all param groups.')
+    parser.add_argument('--reduce_cooldown', type=int, default=2, help='Number of epochs to wait before resuming normal operation after lr has been reduced.')
+    parser.add_argument('--reduce_min_lr', type=float, default=1e-7, help='A lower bound on the learning rate of all param groups.')
     parser.add_argument('--reduce_eps', type=float, default=1e-8, help='Minimal decay applied to lr.')
     parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
 
