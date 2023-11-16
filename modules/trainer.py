@@ -326,7 +326,7 @@ class Trainer(BaseTrainer):
             self.test_metrics_history[metric_name].append(metric_value)
         
         # 每五个 epoch 绘制和保存指标图表
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             title = f"Epoch: {epoch}, LR VE: {self.lr_ve}, LR ED: {self.lr_ed}"
             self._plot_metrics(epoch, title)
     
