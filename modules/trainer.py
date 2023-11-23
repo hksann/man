@@ -212,6 +212,8 @@ class Trainer(BaseTrainer):
         self.model.train()
 
         train_start_time = time.time()
+        # 创建 CustomWeightDecayScheduler 实例
+        weight_decay_scheduler = CustomWeightDecayScheduler(self.optimizer, decay_rate=0.95, decay_steps=1000)
 
         for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.train_dataloader):
             images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
@@ -225,6 +227,9 @@ class Trainer(BaseTrainer):
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+
+            # 调用自定义weight_decay调度器的step方法
+            weight_decay_scheduler.step()
 
             if batch_idx % 50 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
