@@ -185,3 +185,21 @@ def build_plateau_optimizer(args, model):
                                      patience=args.reduce_on_plateau_patience)
 
     return ve_optimizer, ed_optimizer
+
+class CustomWeightDecayScheduler:
+    def __init__(self, optimizer, decay_rate, decay_steps):
+        if not isinstance(optimizer, Optimizer):
+            raise TypeError(f"{type(optimizer).__name__} is not an Optimizer")
+        self.optimizer = optimizer
+        self.decay_rate = decay_rate
+        self.decay_steps = decay_steps
+        self.step_count = 0
+    
+    def step(self):
+        # Increment step count
+        self.step_count += 1
+
+        # Perform weight decay adjustment
+        if self.step_count % self.decay_steps == 0:
+            for param_group in self.optimizer.param_groups:
+                param_group['weight_decay'] *= self.decay_rate
