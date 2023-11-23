@@ -62,6 +62,7 @@ def parse_agrs():
     parser.add_argument('--output_logsoftmax', type=int, default=1, help='whether to output the probabilities.')
     parser.add_argument('--decoding_constraint', type=int, default=0, help='whether decoding constraint.')
     parser.add_argument('--block_trigrams', type=int, default=1, help='whether to use block trigrams.')
+    parser.add_argument('--diversity_lambda', type=float, default=0.5, help='diversity penalty for beam search')
 
     # Trainer settings
     parser.add_argument('--n_gpu', type=int, default=1, help='the number of gpus to be used.')
@@ -121,7 +122,7 @@ def main():
     # fix random seeds
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = True
     np.random.seed(args.seed)
 
     # create tokenizer
