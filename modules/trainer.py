@@ -197,9 +197,14 @@ class Trainer(BaseTrainer):
     def translate_to_chinese(self, text_to_translate):
         # 创建一个Translator对象
         translator = Translator()
-        # 执行文本翻译，从英文到中文
-        translated_text = translator.translate(text_to_translate, src='en', dest='zh-cn').text
-        return translated_text
+        try:
+            # 尝试执行文本翻译，从英文到中文
+            translated_text = translator.translate(text_to_translate, src='en', dest='zh-cn').text
+            return translated_text
+        except Exception as e:
+            print(f"翻译时出现错误: {e}")
+            # 在发生异常时返回原始文本或适当的错误消息
+            return "翻译错误"  # 或者返回 text_to_translate
     
     def _train_epoch(self, epoch):
         print(logging.getLogger().getEffectiveLevel())
