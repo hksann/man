@@ -1,4 +1,5 @@
 import torch
+from torch.optim.optimizer import Optimizer  # 添加这行
 from torch import optim
 
 def build_optimizer(args, model):
