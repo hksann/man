@@ -1,7 +1,7 @@
 python main_plot.py \
-    --image_dir /kaggle/input/images/iu_xray/iu_xray/images \
-    --ann_path /kaggle/input/images/iu_xray/iu_xray/annotation.json \
-    --dataset_name mimic_cxr \
+    --image_dir /kaggle/input/images/iu_xray/images \
+    --ann_path /kaggle/input/images/iu_xray/annotation.json \
+    --dataset_name iu_xray \
     --max_seq_length 60 \
     --threshold 3 \
     --epochs 100 \
