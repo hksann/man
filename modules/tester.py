@@ -132,11 +132,15 @@ class Tester(BaseTester):
                                     heatmap)
 
                 for ne_idx, ne in enumerate(ner(" ".join(report)).ents):
+                    # 确保实体的开始和结束索引在 char2word 的范围内
+                    start_index = min(ne.start_char, len(char2word) - 1)
+                    end_index = min(ne.end_char, len(char2word) - 1)
+
                     for layer_idx in range(len(attention_weights[0])):
                         os.makedirs(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
                                                  "layer_{}".format(layer_idx)), exist_ok=True)
-                        attn = [attns[layer_idx] for attns in
-                                attention_weights[char2word[ne.start_char]:char2word[ne.end_char] + 1]]
+                        # 使用更新后的 start_index 和 end_index
+                        attn = [attns[layer_idx] for attns in attention_weights[char2word[start_index]:char2word[end_index] + 1]]
                         attn = np.concatenate(attn, axis=2)
                         heatmap = generate_heatmap(image, attn.mean(1).mean(1).squeeze())
                         cv2.imwrite(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
