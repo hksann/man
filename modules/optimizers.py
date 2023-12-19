@@ -1,6 +1,7 @@
 import torch
-from torch.optim.optimizer import Optimizer  # 添加这行
+from torch.optim.optimizer import Optimizer
 from torch import optim
+from torch.optim.lr_scheduler import ExponentialLR  # 确保添加了这行
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
@@ -19,7 +20,7 @@ def build_optimizer(args, model):
     return optimizer
 
 def build_lr_scheduler(args, optimizer):
-    # 使用ReduceLROnPlateau作为学习率调度器
+    # 根据args中的指示选择学习率调度器
     if args.lr_scheduler == 'ReduceLROnPlateau':
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, 
@@ -30,11 +31,15 @@ def build_lr_scheduler(args, optimizer):
             threshold=0.01,  # 定义显著改善的阈值
             threshold_mode='rel'  # 相对改善
         )
+    elif args.lr_scheduler.lower() == 'exponential':
+        # 指数衰减策略
+        gamma = args.lr_decay_rate  # 学习率衰减率
+        lr_scheduler = ExponentialLR(optimizer, gamma=gamma)
     else:
-        # 其他类型的调度器初始化
+        # 其他类型的学习率调度器
         lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
-            optimizer, 
-            args.step_size, 
+            optimizer,
+            args.step_size,
             args.gamma
         )
     return lr_scheduler
