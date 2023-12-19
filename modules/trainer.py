@@ -234,7 +234,14 @@ class Trainer(BaseTrainer):
             if batch_idx % 50 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
-
+        
+        # After finishing all batches in this epoch, update the learning rate
+        if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            val_metric = self.evaluate_on_validation_set()  # you need to implement this
+            self.lr_scheduler.step(val_metric)
+        else:
+            self.lr_scheduler.step()
+            
         train_end_time = time.time()
         train_time = train_end_time - train_start_time
         avg_train_loss = train_loss / len(self.train_dataloader)
@@ -361,33 +368,43 @@ class Trainer(BaseTrainer):
             plt.figure(figsize=(18, 18))
             gs = gridspec.GridSpec(3, 1)
 
-            # 绘制训练损失
+            # 绘制训练损失并添加数值标注
             plt.subplot(gs[0])
             plt.plot(self.train_loss_history, label='Training Loss', color='blue')
+            for x, y in enumerate(self.train_loss_history):
+                plt.text(x, y, f'{y:.2f}', ha='center', va='bottom', fontsize=8)
             plt.title(f'Training Loss (Epoch {epoch})', fontsize=20)
             plt.xlabel('Epoch', fontsize=15)
             plt.ylabel('Loss', fontsize=15)
             plt.legend(fontsize=12)
             plt.grid(True)
 
-            # 绘制验证评价指标
+            # 绘制验证评价指标并添加数值标注
             plt.subplot(gs[1])
             avg_val_metrics = np.mean([v for k, v in self.val_metrics_history.items() if k != 'BLEU_4'], axis=0)
             plt.plot(avg_val_metrics, label='Average Validation Metrics', color='green')
+            for x, y in enumerate(avg_val_metrics):
+                plt.text(x, y, f'{y:.2f}', ha='center', va='bottom', fontsize=8)
             if 'BLEU_4' in self.val_metrics_history:
                 plt.plot(self.val_metrics_history['BLEU_4'], label='BLEU_4', color='red')
+                for x, y in enumerate(self.val_metrics_history['BLEU_4']):
+                    plt.text(x, y, f'{y:.2f}', ha='center', va='bottom', fontsize=8)
             plt.title('Validation Metrics', fontsize=20)
             plt.xlabel('Epoch', fontsize=15)
             plt.ylabel('Metric Value', fontsize=15)
             plt.legend(fontsize=12)
             plt.grid(True)
 
-            # 绘制测试评价指标
+            # 绘制测试评价指标并添加数值标注
             plt.subplot(gs[2])
             avg_test_metrics = np.mean([v for k, v in self.test_metrics_history.items() if k != 'BLEU_4'], axis=0)
             plt.plot(avg_test_metrics, label='Average Test Metrics', color='orange')
+            for x, y in enumerate(avg_test_metrics):
+                plt.text(x, y, f'{y:.2f}', ha='center', va='bottom', fontsize=8)
             if 'BLEU_4' in self.test_metrics_history:
                 plt.plot(self.test_metrics_history['BLEU_4'], label='BLEU_4', color='purple')
+                for x, y in enumerate(self.test_metrics_history['BLEU_4']):
+                    plt.text(x, y, f'{y:.2f}', ha='center', va='bottom', fontsize=8)
             plt.title('Test Metrics', fontsize=20)
             plt.xlabel('Epoch', fontsize=15)
             plt.ylabel('Metric Value', fontsize=15)
