@@ -102,6 +102,9 @@ def parse_agrs():
     parser.add_argument('--reduce_min_lr', type=float, default=1e-7, help='A lower bound on the learning rate of all param groups.')
     parser.add_argument('--reduce_eps', type=float, default=1e-8, help='Minimal decay applied to lr.')
     parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
+    
+    # exponential
+    parser.add_argument('--lr_decay_rate', type=float, default=0.95, help='Exponential decay rate for the learning rate.')
 
     # Others
     parser.add_argument('--seed', type=int, default=9233, help='.')
