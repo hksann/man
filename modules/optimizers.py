@@ -20,31 +20,30 @@ def build_optimizer(args, model):
     return optimizer
 
 def build_lr_scheduler(args, optimizer):
-if args.lr_scheduler == 'ReduceLROnPlateau':
-    lr_plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='max', 
-        factor=args.reduce_factor, 
-        patience=args.reduce_patience, 
-        verbose=True,
-        threshold=0.01, 
-        threshold_mode='rel' 
-    )
-    lr_scheduler = GradualWarmupScheduler(
-        optimizer, 
-        multiplier=args.multiplier, 
-        total_epoch=args.warmup_epochs, 
-        after_scheduler=lr_plateau_scheduler
-    )
-else:
-    # 其他类型的学习率调度器
-    lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
-        optimizer,
-        args.step_size,
-        args.gamma
-    )
-return lr_scheduler
-
+    if args.lr_scheduler == 'ReduceLROnPlateau':
+        lr_plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='max', 
+            factor=args.reduce_factor, 
+            patience=args.reduce_patience, 
+            verbose=True,
+            threshold=0.01, 
+            threshold_mode='rel' 
+        )
+        lr_scheduler = GradualWarmupScheduler(
+            optimizer, 
+            multiplier=args.multiplier, 
+            total_epoch=args.warmup_epochs, 
+            after_scheduler=lr_plateau_scheduler
+        )
+    else:
+        # 其他类型的学习率调度器
+        lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
+            optimizer,
+            args.step_size,
+            args.gamma
+        )
+    return lr_scheduler
 
 def set_lr(optimizer, lr):
     for group in optimizer.param_groups:
