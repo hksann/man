@@ -11,8 +11,6 @@ from modules.tokenizers import Tokenizer
 from modules.trainer import Trainer
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-
-
 def parse_agrs():
     parser = argparse.ArgumentParser()
 
@@ -85,8 +83,8 @@ def parse_agrs():
     parser.add_argument('--amsgrad', type=bool, default=True, help='Whether to use the AMSGrad variant of Adam.')
 
     # Noam Optimizer Specific Args
-    parser.add_argument('--noamopt_warmup', type=int, default=5000, help='Number of warmup steps for NoamOpt.')
-    parser.add_argument('--noamopt_factor', type=int, default=1, help='Factor for NoamOpt.')
+#     parser.add_argument('--noamopt_warmup', type=int, default=5000, help='Number of warmup steps for NoamOpt.')
+#     parser.add_argument('--noamopt_factor', type=int, default=1, help='Factor for NoamOpt.')
 
     # Learning Rate Scheduler
     parser.add_argument('--lr_scheduler', type=str, default='ReduceLROnPlateau', help='the type of the learning rate scheduler.')
@@ -103,8 +101,9 @@ def parse_agrs():
     parser.add_argument('--reduce_eps', type=float, default=1e-8, help='Minimal decay applied to lr.')
     parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
     
-    # exponential
-    parser.add_argument('--lr_decay_rate', type=float, default=0.95, help='Exponential decay rate for the learning rate.')
+    # warm-up
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='Number of warmup epochs for GradualWarmupScheduler.')
+    parser.add_argument('--multiplier', type=float, default=10, help='Multiplier for learning rate at the end of warmup.')
 
     # Others
     parser.add_argument('--seed', type=int, default=9233, help='.')
