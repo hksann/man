@@ -234,14 +234,7 @@ class Trainer(BaseTrainer):
             if batch_idx % 50 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
-        
-        # After finishing all batches in this epoch, update the learning rate
-        if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            val_metric = self.evaluate_on_validation_set()  # you need to implement this
-            self.lr_scheduler.step(val_metric)
-        else:
-            self.lr_scheduler.step()
-            
+
         train_end_time = time.time()
         train_time = train_end_time - train_start_time
         avg_train_loss = train_loss / len(self.train_dataloader)
@@ -264,47 +257,36 @@ class Trainer(BaseTrainer):
                 val_res.extend(reports)
                 val_gts.extend(ground_truths)
 
-                # 在第一个批次中随机选择两张图片并打印信息
                 if batch_idx == 0:
-                    random_indices = np.random.choice(len(images_id), 2, replace=False)  # 随机选择两个索引
+                    random_indices = np.random.choice(len(images_id), 2, replace=False)
                     for idx in random_indices:
-                        image_name = images_id[idx]  # 图片id
-                        translated_inference_text = self.translate_to_chinese(reports[idx])  # 翻译推理文本
-                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])  # 翻译地面真实文本
+                        image_name = images_id[idx]
+                        translated_inference_text = self.translate_to_chinese(reports[idx])
+                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
-                        # 修改后的验证集打印代码
                         print(f"Validation Set - Image Name: {image_name}")
-                        print(f"\033[31mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")  # 红色
+                        print(f"\033[31mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
                         print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
-
-            # 计算验证集的BLEU分数和其他指标
-            val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
-                                       {i: [re] for i, re in enumerate(val_res)})
+            val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)}, {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
-            
-            # 计算综合分数
-            composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] +
-                               val_met['METEOR'] + val_met['ROUGE_L']) / 6
-            self.scheduler.step(composite_score)  # 使用综合分数更新学习率调度器
 
-            # 获取当前的学习率
+            composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
+            self.scheduler.step(composite_score)
+
             current_lr_ve = self.optimizer.param_groups[0]['lr']
             current_lr_ed = self.optimizer.param_groups[1]['lr']
             print(f"{Trainer.BLUE}    --lr_ve {current_lr_ve:.1e} \\{Trainer.ENDC}")
             print(f"{Trainer.BLUE}    --lr_ed {current_lr_ed:.1e} \\{Trainer.ENDC}")
 
-        
-        # 验证结束后获取时间戳
         val_end_time = time.time()
-        # 计算验证过程花费的时间
         val_time = val_end_time - val_start_time
         for metric_name, metric_value in val_met.items():
             if metric_name not in self.val_metrics_history:
                 self.val_metrics_history[metric_name] = []
             self.val_metrics_history[metric_name].append(metric_value)
 
-        test_start_time = time.time()  # 记录测试开始时间
+        test_start_time = time.time()
         self.logger.info('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
         self.model.eval()
 
@@ -325,29 +307,24 @@ class Trainer(BaseTrainer):
                         translated_inference_text = self.translate_to_chinese(reports[idx])
                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
-                        # 测试集打印代码
                         print(f"Test Set - Image Name: {image_name}")
-                        print(f"\033[31mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")  # 红色
+                        print(f"\033[31mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
                         print(f"Test Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
             test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)}, {i: [re] for i, re in enumerate(test_res)})
             log.update(**{'test_' + k: v for k, v in test_met.items()})
 
-        test_end_time = time.time()  # 记录测试结束时间
-        test_time = test_end_time - test_start_time  # 计算测试时间
-        
-        # 更新测试指标历史记录
+        test_end_time = time.time()
+        test_time = test_end_time - test_start_time
         for metric_name, metric_value in test_met.items():
             if metric_name not in self.test_metrics_history:
                 self.test_metrics_history[metric_name] = []
             self.test_metrics_history[metric_name].append(metric_value)
-        
-        # 每五个 epoch 绘制和保存指标图表
+
         if epoch % 10 == 0:
             title = f"Epoch: {epoch}, LR VE: {self.lr_ve}, LR ED: {self.lr_ed}"
             self._plot_metrics(epoch, title)
-    
-        # 打印训练、验证和测试时间
+
         print(f"[{epoch}/{self.epochs}] Train Time: {train_time:.2f} seconds")
         print(f"[{epoch}/{self.epochs}] Validation Time: {val_time:.2f} seconds")
         print(f"[{epoch}/{self.epochs}] Test Time: {test_time:.2f} seconds")
