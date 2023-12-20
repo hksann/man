@@ -20,29 +20,31 @@ def build_optimizer(args, model):
     return optimizer
 
 def build_lr_scheduler(args, optimizer):
-    # 根据args中的指示选择学习率调度器
-    if args.lr_scheduler == 'ReduceLROnPlateau':
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, 
-            mode='max',  # 假设我们是最大化BLEU分数
-            factor=args.reduce_factor,  # 学习率减少的因子
-            patience=args.reduce_patience,  # 无改善的周期数
-            verbose=True,
-            threshold=0.01,  # 定义显著改善的阈值
-            threshold_mode='rel'  # 相对改善
-        )
-    elif args.lr_scheduler.lower() == 'exponential':
-        # 指数衰减策略
-        gamma = args.lr_decay_rate  # 学习率衰减率
-        lr_scheduler = ExponentialLR(optimizer, gamma=gamma)
-    else:
-        # 其他类型的学习率调度器
-        lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
-            optimizer,
-            args.step_size,
-            args.gamma
-        )
-    return lr_scheduler
+if args.lr_scheduler == 'ReduceLROnPlateau':
+    lr_plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='max', 
+        factor=args.reduce_factor, 
+        patience=args.reduce_patience, 
+        verbose=True,
+        threshold=0.01, 
+        threshold_mode='rel' 
+    )
+    lr_scheduler = GradualWarmupScheduler(
+        optimizer, 
+        multiplier=args.multiplier, 
+        total_epoch=args.warmup_epochs, 
+        after_scheduler=lr_plateau_scheduler
+    )
+else:
+    # 其他类型的学习率调度器
+    lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
+        optimizer,
+        args.step_size,
+        args.gamma
+    )
+return lr_scheduler
+
 
 def set_lr(optimizer, lr):
     for group in optimizer.param_groups:
@@ -52,6 +54,29 @@ def get_lr(optimizer):
     for group in optimizer.param_groups:
         return group['lr']
 
+class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
+        self.multiplier = multiplier
+        self.total_epoch = total_epoch
+        self.after_scheduler = after_scheduler
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        if self.last_epoch > self.total_epoch:
+            if self.after_scheduler:
+                return self.after_scheduler.get_lr()
+            return self.base_lrs
+        return [base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1) for base_lr in self.base_lrs]
+
+    def step(self, epoch=None):
+        if epoch is None:
+            epoch = self.last_epoch + 1
+        self.last_epoch = epoch
+        if self.last_epoch <= self.total_epoch:
+            for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+                param_group['lr'] = lr
+        if self.after_scheduler and self.last_epoch > self.total_epoch:
+            self.after_scheduler.step(epoch - self.total_epoch)
 
 class NoamOpt(object):
     "Optim wrapper that implements rate."
@@ -200,7 +225,7 @@ class CustomWeightDecayScheduler:
         self.decay_rate = decay_rate
         self.decay_steps = decay_steps
         self.step_count = 0
-    
+
     def step(self):
         # Increment step count
         self.step_count += 1
