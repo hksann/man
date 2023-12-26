@@ -270,7 +270,9 @@ class Trainer(BaseTrainer):
 
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)}, {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
-
+            
+            # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
+            # self.scheduler.step(composite_score)
             # 计算BLEU-4分数
             bleu_4_score = val_met['BLEU_4']
             # 使用BLEU-4分数更新学习率调度器
