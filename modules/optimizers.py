@@ -58,24 +58,26 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
         self.after_scheduler = after_scheduler
-        super().__init__(optimizer)
+        super(GradualWarmupScheduler, self).__init__(optimizer)
 
     def get_lr(self):
         if self.last_epoch > self.total_epoch:
             if self.after_scheduler:
-                return self.after_scheduler.get_lr()
+                # 确保这里不再更新学习率，转而让after_scheduler接管
+                return [group['lr'] for group in self.optimizer.param_groups]
             return self.base_lrs
-        return [base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1) for base_lr in self.base_lrs]
+        # 预热期的学习率更新逻辑保持不变
+        return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
 
     def step(self, epoch=None):
+        super(GradualWarmupScheduler, self).step(epoch)
         if epoch is None:
             epoch = self.last_epoch + 1
         self.last_epoch = epoch
-        if self.last_epoch <= self.total_epoch:
-            for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
-                param_group['lr'] = lr
-        if self.after_scheduler and self.last_epoch > self.total_epoch:
-            self.after_scheduler.step(epoch - self.total_epoch)
+        if self.last_epoch == self.total_epoch + 1:
+            # 在预热期结束时，更新after_scheduler的base_lrs为当前学习率，确保平滑过渡
+            if self.after_scheduler:
+                self.after_scheduler.base_lrs = [group['lr'] for group in self.optimizer.param_groups]
 
 class NoamOpt(object):
     "Optim wrapper that implements rate."
