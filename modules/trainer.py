@@ -274,24 +274,20 @@ class Trainer(BaseTrainer):
             
             # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
             # self.scheduler.step(composite_score)
+
             # 计算BLEU-4分数
             bleu_4_score = val_met['BLEU_4']
-            
-            # 检查是否是GradualWarmupScheduler，并且是否有after_scheduler
-            if isinstance(self.scheduler, GradualWarmupScheduler) and isinstance(self.scheduler.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                # 如果是预热阶段，则不需要传递性能指标
-                # 预热阶段结束后，after_scheduler (即ReduceLROnPlateau) 将接管并需要指标
-                self.scheduler.step(metrics=bleu_4_score)
-            else:
-                # 如果不是使用预热调度器，或者after_scheduler不是ReduceLROnPlateau
-                # 直接使用BLEU-4分数更新学习率调度器
-                self.scheduler.step(bleu_4_score)
-            
+
+            # 使用BLEU-4分数更新学习率调度器
+            # 对于基于性能的调度器（如 ReduceLROnPlateau），传递 metrics 参数
+            # 对于其他类型的调度器，这个调用将简单地进行下一步操作
+            self.scheduler.step(bleu_4_score)
+
             # 打印当前学习率
             current_lr_ve = self.optimizer.param_groups[0]['lr']
             current_lr_ed = self.optimizer.param_groups[1]['lr']
-            print(f"{Trainer.BLUE}    --lr_ve {current_lr_ve:.1e} \\{Trainer.ENDC}")
-            print(f"{Trainer.BLUE}    --lr_ed {current_lr_ed:.1e} \\{Trainer.ENDC}")
+            print(f"\033[34m    --lr_ve {current_lr_ve:.1e}\033[0m")
+            print(f"\033[34m    --lr_ed {current_lr_ed:.1e}\033[0m")
 
         val_end_time = time.time()
         val_time = val_end_time - val_start_time
