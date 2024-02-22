@@ -17,6 +17,7 @@ from .loss import compute_loss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from .optimizers import build_lr_scheduler
 from .optimizers import CustomWeightDecayScheduler
+from .optimizers import GradualWarmupScheduler
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler):
