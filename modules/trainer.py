@@ -187,6 +187,8 @@ class Trainer(BaseTrainer):
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
+        self.lr_ve_history = []  # 记录Visual Extractor的学习率历史
+        self.lr_ed_history = []  # 记录Encoder Decoder的学习率历史
 
         self.train_loss_history = []
         self.val_metrics_history = {}
@@ -286,6 +288,8 @@ class Trainer(BaseTrainer):
             # 打印当前学习率
             current_lr_ve = self.optimizer.param_groups[0]['lr']
             current_lr_ed = self.optimizer.param_groups[1]['lr']
+            self.lr_ve_history.append(current_lr_ve)  # Assuming you have this list defined in your class
+            self.lr_ed_history.append(current_lr_ed)  # Assuming you have this list defined in your class
             print(f"\033[34m    --lr_ve {current_lr_ve:.1e}\033[0m")
             print(f"\033[34m    --lr_ed {current_lr_ed:.1e}\033[0m")
 
@@ -351,10 +355,24 @@ class Trainer(BaseTrainer):
                 if previous_image.startswith(f'metrics_epoch_') and previous_image.endswith('.png'):
                     os.remove(f'/kaggle/working/{previous_image}')
 
-            # 创建图表
-            plt.figure(figsize=(18, 18))
-            gs = gridspec.GridSpec(3, 1)
+#             # 创建图表
+#             plt.figure(figsize=(18, 18))
+#             gs = gridspec.GridSpec(3, 1)
 
+            # 创建图表
+            plt.figure(figsize=(18, 22))  # 调整图表的总大小以适应新的绘图
+            gs = gridspec.GridSpec(4, 1)  # 增加到4行以容纳学习率的绘图
+            
+            # 新增加的学习率绘制区域
+            plt.subplot(gs[3])
+            plt.plot(self.lr_ve_history, label='LR VE (Visual Extractor)', color='cyan', linestyle='--')
+            plt.plot(self.lr_ed_history, label='LR ED (Encoder Decoder)', color='magenta', linestyle='--')
+            plt.title('Learning Rate Changes', fontsize=20)
+            plt.xlabel('Epoch', fontsize=15)
+            plt.ylabel('Learning Rate', fontsize=15)
+            plt.legend(fontsize=12)
+            plt.grid(True)
+        
             # 绘制训练损失并添加数值标注
             plt.subplot(gs[0])
             plt.plot(self.train_loss_history, label='Training Loss', color='blue')
