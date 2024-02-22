@@ -58,32 +58,33 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
         self.after_scheduler = after_scheduler
-        super().__init__(optimizer)
+        super(GradualWarmupScheduler, self).__init__(optimizer)
     
     def get_lr(self):
-        if self.last_epoch >= self.total_epoch:
-            if self.after_scheduler:
-                # 预热结束后，让 after_scheduler 接管学习率更新
-                return self.after_scheduler.get_last_lr()
-            return self.base_lrs
-        # 预热期的学习率更新逻辑
-        return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
+        if self.last_epoch <= self.total_epoch:
+            # 在预热期内
+            return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
+        else:
+            # 在预热期结束后，直接从optimizer.param_groups获取当前学习率
+            return [group['lr'] for group in self.optimizer.param_groups]
 
     def step(self, epoch=None, metrics=None):
         if epoch is None:
             epoch = self.last_epoch + 1
         self.last_epoch = epoch
         
-        if epoch <= self.total_epoch:
-            # 更新学习率
-            super().step(epoch)
+        if self.last_epoch <= self.total_epoch:
+            # 在预热期内更新学习率
+            lr = self.get_lr()
+            for param_group, lr in zip(self.optimizer.param_groups, lr):
+                param_group['lr'] = lr
         else:
-            # 预热结束后，更新 after_scheduler 的学习率
+            # 预热结束后，让after_scheduler接管，对于ReduceLROnPlateau需要传递metrics参数
             if self.after_scheduler:
-                if epoch == self.total_epoch + 1:
-                    # 更新 after_scheduler 的 base_lrs，以便平滑过渡
-                    self.after_scheduler.base_lrs = list(self.get_lr())
-                self.after_scheduler.step(epoch - self.total_epoch - 1, metrics)
+                if isinstance(self.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.after_scheduler.step(metrics)
+                else:
+                    self.after_scheduler.step()
 
 class NoamOpt(object):
     "Optim wrapper that implements rate."
