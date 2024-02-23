@@ -266,7 +266,7 @@ class Trainer(BaseTrainer):
                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
                         print(f"Validation Set - Image Name: {image_name}")
-                        print(f"\033[31mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
+                        print(f"\033[34mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
                         print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)}, {i: [re] for i, re in enumerate(val_res)})
@@ -316,7 +316,7 @@ class Trainer(BaseTrainer):
                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
                         print(f"Test Set - Image Name: {image_name}")
-                        print(f"\033[31mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
+                        print(f"\033[34mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
                         print(f"Test Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
             test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)}, {i: [re] for i, re in enumerate(test_res)})
