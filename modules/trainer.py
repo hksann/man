@@ -16,7 +16,6 @@ from googletrans import Translator
 from .loss import compute_loss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from .optimizers import build_lr_scheduler
-from .optimizers import CustomWeightDecayScheduler
 from .optimizers import GradualWarmupScheduler
 
 class BaseTrainer(object):
@@ -39,7 +38,7 @@ class BaseTrainer(object):
         self.optimizer = optimizer
         self.metric_ftns = metric_ftns
         self.lr_scheduler = lr_scheduler
-
+        
         self.epochs = self.args.epochs
         self.save_period = self.args.save_period
 
@@ -56,6 +55,8 @@ class BaseTrainer(object):
 
         self.best_recorder = {'val': {self.mnt_metric: self.mnt_best},
                               'test': {self.mnt_metric_test: self.mnt_best}}
+        # 初始化学习率调度器
+        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='max', factor=args.reduce_factor, patience=args.reduce_patience, cooldown=args.reduce_cooldown, min_lr=args.reduce_min_lr, threshold=args.reduce_lr_threshold, verbose=True)
 
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -177,8 +178,9 @@ class BaseTrainer(object):
 
 class Trainer(BaseTrainer):
     # 定义 ANSI 颜色代码作为类的静态属性
-    BLUE = "\033[34m"
-    ENDC = "\033[0m"
+    BLUE = "\033[34m"  # 蓝色
+    YELLOW = "\033[33m"  # 新增黄色
+    ENDC = "\033[0m"  # 结束颜色
     
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler, train_dataloader,
                  val_dataloader, test_dataloader, lr_ve, lr_ed, step_size, gamma):
@@ -196,7 +198,8 @@ class Trainer(BaseTrainer):
         
         self.lr_ve = lr_ve  # 设置 lr_ve 属性
         self.lr_ed = lr_ed  # 设置 lr_ed 属性
-    
+        
+        
     def translate_to_chinese(self, text_to_translate):
         # 创建一个Translator对象
         translator = Translator()
@@ -215,8 +218,6 @@ class Trainer(BaseTrainer):
         self.model.train()
 
         train_start_time = time.time()
-        # 创建 CustomWeightDecayScheduler 实例
-        weight_decay_scheduler = CustomWeightDecayScheduler(self.optimizer, decay_rate=0.95, decay_steps=1000)
 
         for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.train_dataloader):
             images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
@@ -231,13 +232,10 @@ class Trainer(BaseTrainer):
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
-            # 调用自定义weight_decay调度器的step方法
-            weight_decay_scheduler.step()
-
             if batch_idx % 50 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
-
+        
         train_end_time = time.time()
         train_time = train_end_time - train_start_time
         avg_train_loss = train_loss / len(self.train_dataloader)
@@ -277,21 +275,17 @@ class Trainer(BaseTrainer):
             # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
             # self.scheduler.step(composite_score)
 
-            # 计算BLEU-4分数
-            bleu_4_score = val_met['BLEU_4']
-
             # 使用BLEU-4分数更新学习率调度器
-            # 对于基于性能的调度器（如 ReduceLROnPlateau），传递 metrics 参数
-            # 对于其他类型的调度器，这个调用将简单地进行下一步操作
+            bleu_4_score = val_met['BLEU_4']
             self.scheduler.step(bleu_4_score)
 
             # 打印当前学习率
             current_lr_ve = self.optimizer.param_groups[0]['lr']
             current_lr_ed = self.optimizer.param_groups[1]['lr']
-            self.lr_ve_history.append(current_lr_ve)  # Assuming you have this list defined in your class
-            self.lr_ed_history.append(current_lr_ed)  # Assuming you have this list defined in your class
-            print(f"\033[34m    --lr_ve {current_lr_ve:.1e}\033[0m")
-            print(f"\033[34m    --lr_ed {current_lr_ed:.1e}\033[0m")
+            self.lr_ve_history.append(current_lr_ve)
+            self.lr_ed_history.append(current_lr_ed)
+            print(f"{self.YELLOW}    --lr_ve {current_lr_ve:.1e}{self.ENDC}")
+            print(f"{self.YELLOW}    --lr_ed {current_lr_ed:.1e}{self.ENDC}")
 
         val_end_time = time.time()
         val_time = val_end_time - val_start_time
@@ -354,10 +348,6 @@ class Trainer(BaseTrainer):
             for previous_image in os.listdir('/kaggle/working/'):
                 if previous_image.startswith(f'metrics_epoch_') and previous_image.endswith('.png'):
                     os.remove(f'/kaggle/working/{previous_image}')
-
-#             # 创建图表
-#             plt.figure(figsize=(18, 18))
-#             gs = gridspec.GridSpec(3, 1)
 
             # 创建图表
             plt.figure(figsize=(18, 22))  # 调整图表的总大小以适应新的绘图
