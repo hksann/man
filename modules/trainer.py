@@ -264,28 +264,34 @@ class Trainer(BaseTrainer):
                         image_name = images_id[idx]
                         translated_inference_text = self.translate_to_chinese(reports[idx])
                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
-
+                        
                         print(f"Validation Set - Image Name: {image_name}")
                         print(f"\033[34mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
                         print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
-
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)}, {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
             
             # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
             # self.scheduler.step(composite_score)
 
-            # 使用BLEU-4分数更新学习率调度器
-            bleu_4_score = val_met['BLEU_4']
-            self.scheduler.step(bleu_4_score)
+            # 根据学习率调度器的类型更新学习率
+            if isinstance(self.scheduler, GradualWarmupScheduler) and isinstance(self.scheduler.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                # 如果是在使用 GradualWarmupScheduler 且 after_scheduler 为 ReduceLROnPlateau 类型
+                self.scheduler.step(metrics=val_met['BLEU_4'])  # 使用 BLEU_4 作为性能指标
+            elif isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                # 如果直接使用 ReduceLROnPlateau 作为学习率调度器
+                self.scheduler.step(metrics=val_met['BLEU_4'])  # 使用 BLEU_4 作为性能指标
+            else:
+                # 对于其他类型的学习率调度器
+                self.scheduler.step()
 
-            # 打印当前学习率
+            # 更新学习率历史记录
             current_lr_ve = self.optimizer.param_groups[0]['lr']
             current_lr_ed = self.optimizer.param_groups[1]['lr']
             self.lr_ve_history.append(current_lr_ve)
             self.lr_ed_history.append(current_lr_ed)
-            print(f"{self.YELLOW}    --lr_ve {current_lr_ve:.1e}{self.ENDC}")
-            print(f"{self.YELLOW}    --lr_ed {current_lr_ed:.1e}{self.ENDC}")
+            print(f"{self.YELLOW}--lr_ve {current_lr_ve:.1e}{self.ENDC}")
+            print(f"{self.YELLOW}--lr_ed {current_lr_ed:.1e}{self.ENDC}")
 
         val_end_time = time.time()
         val_time = val_end_time - val_start_time
@@ -293,7 +299,7 @@ class Trainer(BaseTrainer):
             if metric_name not in self.val_metrics_history:
                 self.val_metrics_history[metric_name] = []
             self.val_metrics_history[metric_name].append(metric_value)
-
+        
         test_start_time = time.time()
         self.logger.info('[{}/{}] Start to evaluate in the test set.'.format(epoch, self.epochs))
         self.model.eval()
