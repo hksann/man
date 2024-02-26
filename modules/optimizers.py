@@ -54,37 +54,65 @@ def get_lr(optimizer):
         return group['lr']
 
 class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
+    """逐渐预热学习率的调度器，在预热期结束后交给另一个调度器接管"""
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
         self.after_scheduler = after_scheduler
-        super(GradualWarmupScheduler, self).__init__(optimizer)
+        super().__init__(optimizer)
     
     def get_lr(self):
-        if self.last_epoch <= self.total_epoch:
-            # 在预热期内
-            return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
-        else:
-            # 在预热期结束后，直接从optimizer.param_groups获取当前学习率
-            return [group['lr'] for group in self.optimizer.param_groups]
+        if self.last_epoch < self.total_epoch:
+            return [(base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1)) for base_lr in self.base_lrs]
+        if self.after_scheduler:
+            if not hasattr(self.after_scheduler, "_step_count"):
+                self.after_scheduler._step_count = 1
+            else:
+                self.after_scheduler._step_count += 1
+            return self.after_scheduler.get_lr()
+        return [group['lr'] for group in self.optimizer.param_groups]
 
     def step(self, epoch=None, metrics=None):
         if epoch is None:
             epoch = self.last_epoch + 1
         self.last_epoch = epoch
-        
+
         if self.last_epoch <= self.total_epoch:
-            # 在预热期内更新学习率
-            lr = self.get_lr()
-            for param_group, lr in zip(self.optimizer.param_groups, lr):
+            for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
                 param_group['lr'] = lr
         else:
-            # 预热结束后，让after_scheduler接管，对于ReduceLROnPlateau需要传递metrics参数
             if self.after_scheduler:
+                print(f"Handing over to after_scheduler: {type(self.after_scheduler).__name__}")
                 if isinstance(self.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                    self.after_scheduler.step(metrics)
+                    if metrics is not None:
+                        print(f"ReduceLROnPlateau receives metrics: {metrics}")
+                        self.after_scheduler.step(metrics)
+                    else:
+                        print("Warning: ReduceLROnPlateau expects metrics, but none was provided.")
                 else:
                     self.after_scheduler.step()
+            else:
+                print("No after_scheduler to hand over to.")
+
+def build_optimizer(args, model):
+    ve_params = list(map(id, model.visual_extractor.parameters()))
+    ed_params = filter(lambda p: id(p) not in ve_params, model.parameters())
+
+    optimizer = optim.AdamW(
+        [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
+         {'params': ed_params, 'lr': args.lr_ed}],
+        weight_decay=args.weight_decay
+    )
+    return optimizer
+
+def build_lr_scheduler(args, optimizer):
+    if args.lr_scheduler == 'ReduceLROnPlateau':
+        after_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.reduce_factor, patience=args.reduce_patience, verbose=True)
+    else:
+        after_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(optimizer, args.step_size, args.gamma)
+
+    scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
+    return scheduler
 
 class NoamOpt(object):
     "Optim wrapper that implements rate."
