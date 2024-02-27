@@ -293,6 +293,12 @@ class Trainer(BaseTrainer):
             print(f"{self.YELLOW}--lr_ve {current_lr_ve:.1e}{self.ENDC}")
             print(f"{self.YELLOW}--lr_ed {current_lr_ed:.1e}{self.ENDC}")
 
+            # 如果scheduler是ReduceLROnPlateau类型，不尝试调用get_lr
+            if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                lrs = [pg['lr'] for pg in self.optimizer.param_groups]
+                # 这里可以根据需要记录或打印lrs
+                print("Current Learning Rates:", lrs)
+
         val_end_time = time.time()
         val_time = val_end_time - val_start_time
         for metric_name, metric_value in val_met.items():
