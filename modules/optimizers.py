@@ -1,57 +1,9 @@
 import torch
-from torch.optim.optimizer import Optimizer
 from torch import optim
-from torch.optim.lr_scheduler import ExponentialLR  # 确保添加了这行
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-def build_optimizer(args, model):
-    ve_params = list(map(id, model.visual_extractor.parameters()))
-    ed_params = filter(lambda x: id(x) not in ve_params, model.parameters())
-
-    # 使用 args.optim 来选择优化器类型
-    Optimizer = optim.Adam if args.optim.lower() == 'adam' else optim.AdamW
-
-    optimizer = Optimizer(
-        [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
-         {'params': ed_params, 'lr': args.lr_ed}],
-        betas=args.adam_betas,
-        eps=args.adam_eps,
-        weight_decay=args.weight_decay
-    )
-    return optimizer
-
-def build_lr_scheduler(args, optimizer):
-    # 创建映射表，将调度器名称映射到它们的构造函数和需要的参数
-    scheduler_mapping = {
-        'ReduceLROnPlateau': (ReduceLROnPlateau, {'mode': 'max', 'factor': args.reduce_factor, 'patience': args.reduce_patience, 'verbose': True}),
-        'ExponentialLR': (ExponentialLR, {'gamma': args.gamma}),
-        # 可以根据需要添加更多调度器和它们的参数
-    }
-
-    # 获取对应的调度器类和参数
-    scheduler_cls, scheduler_params = scheduler_mapping.get(args.lr_scheduler, (None, None))
-
-    if scheduler_cls is None:
-        raise ValueError(f"Unsupported LR scheduler: {args.lr_scheduler}")
-
-    if args.lr_scheduler == 'ReduceLROnPlateau':
-        after_scheduler = scheduler_cls(optimizer, **scheduler_params)
-        scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
-    else:
-        after_scheduler = scheduler_cls(optimizer, **scheduler_params)
-        scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
-
-    return scheduler
-
-def set_lr(optimizer, lr):
-    for group in optimizer.param_groups:
-        group['lr'] = lr
-
-def get_lr(optimizer):
-    for group in optimizer.param_groups:
-        return group['lr']
-
-class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
-    """逐渐预热学习率的调度器，在预热期结束后交给另一个调度器接管"""
+class GradualWarmupScheduler(_LRScheduler):
+    """逐渐预热学习率的调度器，在预热期结束后交给另一个调度器接管。"""
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
@@ -62,10 +14,8 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
         if self.last_epoch < self.total_epoch:
             return [(base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1)) for base_lr in self.base_lrs]
         if self.after_scheduler:
-            if not hasattr(self.after_scheduler, "_step_count"):
-                self.after_scheduler._step_count = 1
-            else:
-                self.after_scheduler._step_count += 1
+            if not hasattr(self.after_scheduler, "_last_lr"):
+                self.after_scheduler._last_lr = [group['lr'] for group in self.optimizer.param_groups]
             return self.after_scheduler.get_lr()
         return [group['lr'] for group in self.optimizer.param_groups]
 
@@ -79,17 +29,64 @@ class GradualWarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
                 param_group['lr'] = lr
         else:
             if self.after_scheduler:
-                print(f"Handing over to after_scheduler: {type(self.after_scheduler).__name__}")
-                if isinstance(self.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                if isinstance(self.after_scheduler, ReduceLROnPlateau):
                     if metrics is not None:
-                        print(f"ReduceLROnPlateau receives metrics: {metrics}")
                         self.after_scheduler.step(metrics)
                     else:
-                        print("Warning: ReduceLROnPlateau expects metrics, but none was provided.")
+                        raise ValueError("Metrics is required for ReduceLROnPlateau scheduler.")
                 else:
                     self.after_scheduler.step()
-            else:
-                print("No after_scheduler to hand over to.")
+                    
+def build_optimizer(args, model):
+    ve_params = list(map(id, model.visual_extractor.parameters()))
+    ed_params = filter(lambda p: id(p) not in ve_params, model.parameters())
+    
+    OptimizerClass = optim.Adam if args.optim.lower() == 'adam' else optim.AdamW
+    optimizer = OptimizerClass(
+        [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
+         {'params': ed_params, 'lr': args.lr_ed}],
+        betas=args.adam_betas,
+        eps=args.adam_eps,
+        weight_decay=args.weight_decay
+    )
+    return optimizer
+
+def build_lr_scheduler(args, optimizer):
+    scheduler_cls = {
+        'ReduceLROnPlateau': ReduceLROnPlateau,
+        # Add other schedulers here as needed
+    }.get(args.lr_scheduler, None)
+
+    if scheduler_cls is None:
+        raise ValueError(f"Unsupported LR scheduler: {args.lr_scheduler}")
+
+    scheduler_params = {
+        'ReduceLROnPlateau': {
+            'optimizer': optimizer, 
+            'mode': 'max', 
+            'factor': args.reduce_factor, 
+            'patience': args.reduce_patience, 
+            'verbose': True
+        },
+        # Add other scheduler parameters here as needed
+    }
+
+    if args.lr_scheduler == 'ReduceLROnPlateau':
+        after_scheduler = scheduler_cls(**scheduler_params[args.lr_scheduler])
+    else:
+        # For simplicity, assuming other schedulers do not require special handling like ReduceLROnPlateau
+        after_scheduler = scheduler_cls(optimizer, args.step_size, args.gamma)
+
+    scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
+    return scheduler
+
+def set_lr(optimizer, lr):
+    for group in optimizer.param_groups:
+        group['lr'] = lr
+
+def get_lr(optimizer):
+    for group in optimizer.param_groups:
+        return group['lr']
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
@@ -249,21 +246,3 @@ def build_plateau_optimizer(args, model):
                                      patience=args.reduce_on_plateau_patience)
 
     return ve_optimizer, ed_optimizer
-
-class CustomWeightDecayScheduler:
-    def __init__(self, optimizer, decay_rate, decay_steps):
-        if not isinstance(optimizer, Optimizer):
-            raise TypeError(f"{type(optimizer).__name__} is not an Optimizer")
-        self.optimizer = optimizer
-        self.decay_rate = decay_rate
-        self.decay_steps = decay_steps
-        self.step_count = 0
-
-    def step(self):
-        # Increment step count
-        self.step_count += 1
-
-        # Perform weight decay adjustment
-        if self.step_count % self.decay_steps == 0:
-            for param_group in self.optimizer.param_groups:
-                param_group['weight_decay'] *= self.decay_rate
