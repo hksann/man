@@ -20,30 +20,27 @@ def build_optimizer(args, model):
     return optimizer
 
 def build_lr_scheduler(args, optimizer):
+    # 创建映射表，将调度器名称映射到它们的构造函数和需要的参数
+    scheduler_mapping = {
+        'ReduceLROnPlateau': (ReduceLROnPlateau, {'mode': 'max', 'factor': args.reduce_factor, 'patience': args.reduce_patience, 'verbose': True}),
+        'ExponentialLR': (ExponentialLR, {'gamma': args.gamma}),
+        # 可以根据需要添加更多调度器和它们的参数
+    }
+
+    # 获取对应的调度器类和参数
+    scheduler_cls, scheduler_params = scheduler_mapping.get(args.lr_scheduler, (None, None))
+
+    if scheduler_cls is None:
+        raise ValueError(f"Unsupported LR scheduler: {args.lr_scheduler}")
+
     if args.lr_scheduler == 'ReduceLROnPlateau':
-        lr_plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, 
-            mode='max', 
-            factor=args.reduce_factor, 
-            patience=args.reduce_patience, 
-            verbose=True,
-            threshold=0.01, 
-            threshold_mode='rel' 
-        )
-        lr_scheduler = GradualWarmupScheduler(
-            optimizer, 
-            multiplier=args.multiplier, 
-            total_epoch=args.warmup_epochs, 
-            after_scheduler=lr_plateau_scheduler
-        )
+        after_scheduler = scheduler_cls(optimizer, **scheduler_params)
+        scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
     else:
-        # 其他类型的学习率调度器
-        lr_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(
-            optimizer,
-            args.step_size,
-            args.gamma
-        )
-    return lr_scheduler
+        after_scheduler = scheduler_cls(optimizer, **scheduler_params)
+        scheduler = GradualWarmupScheduler(optimizer, multiplier=args.multiplier, total_epoch=args.warmup_epochs, after_scheduler=after_scheduler)
+
+    return scheduler
 
 def set_lr(optimizer, lr):
     for group in optimizer.param_groups:
