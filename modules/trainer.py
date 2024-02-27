@@ -274,16 +274,9 @@ class Trainer(BaseTrainer):
             # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
             # self.scheduler.step(composite_score)
 
-            # 根据学习率调度器的类型更新学习率
-            if isinstance(self.scheduler, GradualWarmupScheduler) and isinstance(self.scheduler.after_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                # 如果是在使用 GradualWarmupScheduler 且 after_scheduler 为 ReduceLROnPlateau 类型
-                self.scheduler.step(metrics=val_met['BLEU_4'])  # 使用 BLEU_4 作为性能指标
-            elif isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                # 如果直接使用 ReduceLROnPlateau 作为学习率调度器
-                self.scheduler.step(metrics=val_met['BLEU_4'])  # 使用 BLEU_4 作为性能指标
-            else:
-                # 对于其他类型的学习率调度器
-                self.scheduler.step()
+            # 假设val_met是一个字典，其中包含了BLEU-4分数，键为'BLEU_4'
+            bleu_4_score = val_met['BLEU_4']
+            self.scheduler.step(bleu_4_score)
 
             # 更新学习率历史记录
             current_lr_ve = self.optimizer.param_groups[0]['lr']
@@ -292,12 +285,6 @@ class Trainer(BaseTrainer):
             self.lr_ed_history.append(current_lr_ed)
             print(f"{self.YELLOW}--lr_ve {current_lr_ve:.1e}{self.ENDC}")
             print(f"{self.YELLOW}--lr_ed {current_lr_ed:.1e}{self.ENDC}")
-
-            # 如果scheduler是ReduceLROnPlateau类型，不尝试调用get_lr
-            if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                lrs = [pg['lr'] for pg in self.optimizer.param_groups]
-                # 这里可以根据需要记录或打印lrs
-                print("Current Learning Rates:", lrs)
 
         val_end_time = time.time()
         val_time = val_end_time - val_start_time
