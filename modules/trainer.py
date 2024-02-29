@@ -273,19 +273,26 @@ class Trainer(BaseTrainer):
             
             # composite_score = (val_met['BLEU_1'] + val_met['BLEU_2'] + val_met['BLEU_3'] + val_met['BLEU_4'] + val_met['METEOR'] + val_met['ROUGE_L']) / 6
             # self.scheduler.step(composite_score)
+            # 在每个epoch结束时更新学习率
+            bleu_4_score = val_met.get('BLEU_4', 0)  # 安全地获取BLEU_4分数，如果不存在则返回0
 
-            bleu_4_score = val_met['BLEU_4']
-            # 根据scheduler类型调整学习率
-            if isinstance(self.scheduler, GradualWarmupScheduler) and self.scheduler.last_epoch >= self.scheduler.total_epoch:
-                # 如果是GradualWarmupScheduler且预热期已结束，根据after_scheduler的类型决定是否传递性能指标
-                if isinstance(self.scheduler.after_scheduler, ReduceLROnPlateau):
-                    self.scheduler.after_scheduler.step(bleu_4_score)
+            # 更新学习率
+            if isinstance(self.scheduler, GradualWarmupScheduler):
+                # 如果是预热期
+                if self.scheduler.last_epoch + 1 < self.scheduler.total_epoch:
+                    self.scheduler.step()
                 else:
-                    # 对于非ReduceLROnPlateau类型的after_scheduler，直接调用step()，不传递性能指标
-                    self.scheduler.after_scheduler.step()
+                    # 预热期结束，处理后续调度器
+                    if isinstance(self.scheduler.after_scheduler, ReduceLROnPlateau):
+                        self.scheduler.step(metrics=bleu_4_score)
+                    else:
+                        self.scheduler.step()
             else:
-                # 对于非GradualWarmupScheduler或预热期内的GradualWarmupScheduler，直接调用step()
-                self.scheduler.step(bleu_4_score)
+                # 如果没有使用GradualWarmupScheduler
+                if isinstance(self.scheduler, ReduceLROnPlateau):
+                    self.scheduler.step(metrics=bleu_4_score)
+                else:
+                    self.scheduler.step()
     
             # 更新学习率历史记录
             current_lr_ve = self.optimizer.param_groups[0]['lr']
