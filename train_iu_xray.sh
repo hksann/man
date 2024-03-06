@@ -4,7 +4,7 @@ python main_train.py \
     --dataset_name iu_xray \
     --max_seq_length 60 \
     --threshold 3 \
-    --epochs 200 \
+    --epochs 100 \
     --batch_size 16 \
     --lr_ve 2e-5 \
     --lr_ed 1e-4 \
@@ -20,8 +20,8 @@ python main_train.py \
     --reduce_factor 0.8 \
     --num_workers 4 \
     --reduce_min_lr 1e-7 \
-    --early_stop 5000 \
+    --early_stop 50 \
     --seed 7580 \
-    --warmup_epochs 20 \
+    --warmup_epochs 10 \
     --multiplier 10 \
     --save_dir results/iu_xray/
