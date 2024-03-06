@@ -136,9 +136,8 @@ def main():
     val_dataloader = R2DataLoader(args, tokenizer, split='val', shuffle=False, pin_memory=True)
     test_dataloader = R2DataLoader(args, tokenizer, split='test', shuffle=False, pin_memory=True)
 
-
     # build model architecture
-    model = BaseCMNModel(args, tokenizer)
+    model = BaseCMNModel(args, tokenizer, alpha=args.alpha)
 
     # get function handles of loss and metrics
     criterion = compute_loss
