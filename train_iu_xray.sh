@@ -16,12 +16,12 @@ python main_train.py \
     --reduce_lr_threshold 1e-3 \
     --drop_prob_lm 0.5 \
     --lr_scheduler 'ReduceLROnPlateau' \
-    --reduce_patience 5 \
-    --reduce_factor 0.8 \
+    --reduce_patience 3 \
+    --reduce_factor 0.9 \
     --num_workers 4 \
     --reduce_min_lr 1e-7 \
     --early_stop 50 \
     --seed 7580 \
     --warmup_epochs 10 \
-    --multiplier 10 \
+    --multiplier 5 \
     --save_dir results/iu_xray/
