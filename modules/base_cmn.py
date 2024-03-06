@@ -12,16 +12,13 @@ import torch.nn.functional as F
 
 from .att_model import pack_wrapper, AttModel
 
-
 def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
 
 def subsequent_mask(size):
     attn_shape = (1, size, size)
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
-
 
 def attention(query, key, value, mask=None, dropout=None):
     d_k = query.size(-1)
@@ -34,31 +31,16 @@ def attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 def cosine_similarity(query, key):
-    """
-    计算query和key之间的余弦相似度。
-    注意：这里假设query和key的最后一个维度是特征维度。
-    """
-    # 计算余弦相似度前，先对query和key进行归一化
     query_norm = F.normalize(query, p=2, dim=-1)
     key_norm = F.normalize(key, p=2, dim=-1)
-    
-    # 计算归一化向量的点积，即余弦相似度
-    cos_sim = torch.matmul(query_norm, key_norm.transpose(-2, -1))
-    return cos_sim
+    return torch.matmul(query_norm, key_norm.transpose(-2, -1))
 
 def memory_querying_responding(query, key, value, mask=None, dropout=None, topk=32):
     d_k = query.size(-1)
-    # 原始的点积相似度计算
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
-    
-    # 计算余弦相似度
     cos_scores = cosine_similarity(query, key)
-    
-    # 将余弦相似度与原始分数结合（例如，通过加权平均）
-    # 注意：这里的alpha是一个超参数，根据实际情况调整
-    alpha = 0.6
+    alpha = nn.Parameter(torch.tensor(0.7))  # make alpha learnable
     scores = (1 - alpha) * scores + alpha * cos_scores
-    
     if mask is not None:
         scores = scores.masked_fill(mask == 0, float('-inf'))
     selected_scores, idx = scores.topk(topk)
@@ -69,6 +51,7 @@ def memory_querying_responding(query, key, value, mask=None, dropout=None, topk=
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn.unsqueeze(3), selected_value).squeeze(3), p_attn
+
 
 class Transformer(nn.Module):
     def __init__(self, encoder, decoder, src_embed, tgt_embed, cmn):
@@ -348,6 +331,7 @@ class BaseCMN(AttModel):
         self.num_heads = args.num_heads
         self.dropout = args.dropout
         self.topk = args.topk
+        self.alpha = nn.Parameter(torch.tensor(0.7))  # add alpha as a learnable parameter
 
         tgt_vocab = self.vocab_size + 1
         self.cmn = MultiThreadMemory(args.num_heads, args.d_model, topk=args.topk)
