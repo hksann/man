@@ -109,8 +109,7 @@ def parse_agrs():
     parser.add_argument('--seed', type=int, default=9233, help='.')
     parser.add_argument('--resume', type=str, help='whether to resume the training from existing checkpoints.')
     parser.add_argument('--pin_memory', type=bool, default=True, help='Whether to use pin_memory')
-    parser.add_argument('--alpha', type=float, default=0.7, help='balance factor for cosine similarity and dot product in attention.')
-
+    
     args = parser.parse_args()
     # 现在可以安全地访问 args 中的值
     print("Learning rate scheduler:", args.lr_scheduler)
@@ -137,7 +136,7 @@ def main():
     test_dataloader = R2DataLoader(args, tokenizer, split='test', shuffle=False, pin_memory=True)
 
     # build model architecture
-    model = BaseCMNModel(args, tokenizer, alpha=args.alpha)
+    model = BaseCMNModel(args, tokenizer)
 
     # get function handles of loss and metrics
     criterion = compute_loss
