@@ -1,20 +1,27 @@
-python main_train.py\
+python main_train.py \
     --image_dir /kaggle/input/images/iu_xray/images \
     --ann_path /kaggle/input/images/iu_xray/annotation.json \
     --dataset_name iu_xray \
     --max_seq_length 60 \
     --threshold 3 \
-    --epochs 100 \
+    --epochs 200 \
     --batch_size 16 \
-    --lr_ve 5e-5 \
-    --lr_ed 2.5e-4 \
-    --step_size 10 \
-    --gamma 0.8 \
-    --num_layers 3 \
-    --topk 32 \
-    --cmm_size 2048 \
-    --cmm_dim 512 \
-    --seed 7580 \
+    --lr_ve 2e-5 \
+    --lr_ed 1e-4 \
+    --optim 'AdamW' \
+    --dropout 0.5 \
     --beam_size 3 \
-    --save_dir results/iu_xray/ \
-    --log_period 100 \
+    --reduce_cooldown 2 \
+    --weight_decay 8e-3 \
+    --reduce_lr_threshold 1e-3 \
+    --drop_prob_lm 0.5 \
+    --lr_scheduler 'ReduceLROnPlateau' \
+    --reduce_patience 5 \
+    --reduce_factor 0.8 \
+    --num_workers 4 \
+    --reduce_min_lr 1e-7 \
+    --early_stop 5000 \
+    --seed 7580 \
+    --warmup_epochs 20 \
+    --multiplier 10 \
+    --save_dir results/iu_xray/
