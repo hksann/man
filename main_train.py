@@ -109,6 +109,7 @@ def parse_agrs():
     parser.add_argument('--seed', type=int, default=9233, help='.')
     parser.add_argument('--resume', type=str, help='whether to resume the training from existing checkpoints.')
     parser.add_argument('--pin_memory', type=bool, default=True, help='Whether to use pin_memory')
+    parser.add_argument('--alpha', type=float, default=0.7, help='Alpha value for blending')
     
     args = parser.parse_args()
     # 现在可以安全地访问 args 中的值
