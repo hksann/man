@@ -11,7 +11,7 @@ python main_train.py \
     --optim 'AdamW' \
     --dropout 0.1 \
     --beam_size 3 \
-    --topk 15 \
+    --topk 32 \
     --reduce_cooldown 2 \
     --weight_decay 8e-3 \
     --reduce_lr_threshold 1e-3 \
