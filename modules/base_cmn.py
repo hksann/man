@@ -39,7 +39,7 @@ def memory_querying_responding(query, key, value, mask=None, dropout=None, topk=
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
     cos_scores = cosine_similarity(query, key)
-    alpha = nn.Parameter(torch.tensor(0.08))  # make alpha learnable
+    alpha = nn.Parameter(torch.tensor(0.075))  # make alpha learnable
     scores = (1 - alpha) * scores + alpha * cos_scores
     
     if mask is not None:
@@ -332,7 +332,7 @@ class BaseCMN(AttModel):
         self.num_heads = args.num_heads
         self.dropout = args.dropout
         self.topk = args.topk
-        self.alpha = nn.Parameter(torch.tensor(0.08))  # add alpha as a learnable parameter
+        self.alpha = nn.Parameter(torch.tensor(0.075))  # add alpha as a learnable parameter
 
         tgt_vocab = self.vocab_size + 1
         self.cmn = MultiThreadMemory(args.num_heads, args.d_model, topk=args.topk)
