@@ -232,7 +232,7 @@ class Trainer(BaseTrainer):
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
-            if batch_idx % 50 == 0:
+            if batch_idx % 5000 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
         
