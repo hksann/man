@@ -1,6 +1,6 @@
 import torch
 from torch import optim
-from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau, StepLR
 
 class GradualWarmupScheduler(_LRScheduler):
     """Gradual Warmup Scheduler."""
@@ -55,6 +55,8 @@ def build_optimizer(args, model):
 def build_lr_scheduler(args, optimizer):
     if args.lr_scheduler == 'ReduceLROnPlateau':
         after_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.reduce_factor, patience=args.reduce_patience, verbose=True)
+    elif args.lr_scheduler == 'StepLR':
+        after_scheduler = StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     else:
         after_scheduler = getattr(torch.optim.lr_scheduler, args.lr_scheduler)(optimizer, args.step_size, args.gamma)
 
