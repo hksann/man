@@ -102,8 +102,8 @@ def parse_agrs():
     parser.add_argument('--threshold_mode', type=str, default='rel', choices=['rel', 'abs'], help="Mode for the threshold in ReduceLROnPlateau: 'rel' for relative change, 'abs' for absolute change.")
     
     # warm-up
-    parser.add_argument('--warmup_epochs', type=int, default=5, help='Number of warmup epochs for GradualWarmupScheduler.')
-    parser.add_argument('--multiplier', type=float, default=10, help='Multiplier for learning rate at the end of warmup.')
+    parser.add_argument('--warmup_epochs', type=int, default=0, help='Number of warmup epochs for GradualWarmupScheduler.')
+    parser.add_argument('--multiplier', type=float, default=0, help='Multiplier for learning rate at the end of warmup.')
 
     # Others
     parser.add_argument('--seed', type=int, default=9233, help='.')
