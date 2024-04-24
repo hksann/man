@@ -14,9 +14,8 @@ from .base_cmn import BaseCMN
 from torch.cuda.amp import autocast, GradScaler
 from googletrans import Translator
 from .loss import compute_loss
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from .optimizers import build_lr_scheduler
-from .optimizers import GradualWarmupScheduler
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau, StepLR
+from .optimizers import build_lr_scheduler, GradualWarmupScheduler
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args, lr_scheduler):
@@ -56,8 +55,22 @@ class BaseTrainer(object):
         self.best_recorder = {'val': {self.mnt_metric: self.mnt_best},
                               'test': {self.mnt_metric_test: self.mnt_best}}
         # 初始化学习率调度器
-        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='max', factor=args.reduce_factor, patience=args.reduce_patience, cooldown=args.reduce_cooldown, min_lr=args.reduce_min_lr, threshold=args.reduce_lr_threshold, verbose=True)
-
+        # 根据参数选择适当的学习率调度器
+        if args.lr_scheduler == 'StepLR':
+            self.scheduler = StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
+        elif args.lr_scheduler == 'ReduceLROnPlateau':
+            self.scheduler = ReduceLROnPlateau(
+                self.optimizer,
+                mode='max',
+                factor=args.reduce_factor,
+                patience=args.reduce_patience,
+                cooldown=args.reduce_cooldown,
+                min_lr=args.reduce_min_lr,
+                threshold=args.reduce_lr_threshold,
+                verbose=True)
+        else:
+            raise ValueError(f"Unsupported scheduler type: {args.lr_scheduler}")
+            
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
 
@@ -232,7 +245,7 @@ class Trainer(BaseTrainer):
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
-            if batch_idx % 5000 == 0:
+            if batch_idx % 2000 == 0:
                 loss_message = '[{}/{}] Step: {}/{}, Training Loss: {:.5f}.'.format(epoch, self.epochs, batch_idx, len(self.train_dataloader), train_loss / (batch_idx + 1))
                 print(loss_message)
         
@@ -276,23 +289,15 @@ class Trainer(BaseTrainer):
             # 在每个epoch结束时更新学习率
             bleu_4_score = val_met.get('BLEU_4', 0)  # 安全地获取BLEU_4分数，如果不存在则返回0
 
-            # 更新学习率
+            # 在每个epoch结束时更新学习率
             if isinstance(self.scheduler, GradualWarmupScheduler):
-                # 如果是预热期
-                if self.scheduler.last_epoch + 1 < self.scheduler.total_epoch:
+                if self.scheduler.last_epoch < self.scheduler.total_epoch:
                     self.scheduler.step()
                 else:
-                    # 预热期结束，处理后续调度器
-                    if isinstance(self.scheduler.after_scheduler, ReduceLROnPlateau):
-                        self.scheduler.step(metrics=bleu_4_score)
-                    else:
-                        self.scheduler.step()
+                    # 预热期结束，简单地步进后续调度器
+                    self.scheduler.after_scheduler.step()
             else:
-                # 如果没有使用GradualWarmupScheduler
-                if isinstance(self.scheduler, ReduceLROnPlateau):
-                    self.scheduler.step(metrics=bleu_4_score)
-                else:
-                    self.scheduler.step()
+                self.scheduler.step()  # 对于StepLR和其他不依赖性能指标的调度器
     
             # 更新学习率历史记录
             current_lr_ve = self.optimizer.param_groups[0]['lr']
