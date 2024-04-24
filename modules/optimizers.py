@@ -8,40 +8,38 @@ class GradualWarmupScheduler(_LRScheduler):
         self.multiplier = multiplier
         self.total_epoch = total_epoch
         self.after_scheduler = after_scheduler
-        super().__init__(optimizer)
-    
+        # Ensure last_epoch starts at -1 so that the scheduler updates correctly
+        super().__init__(optimizer, last_epoch=-1)
+
     def get_lr(self):
-        if self.last_epoch <= self.total_epoch:
+        if self.last_epoch - 1 < self.total_epoch:
             return [(base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1)) for base_lr in self.base_lrs]
         else:
-            if hasattr(self.after_scheduler, 'get_lr'):
+            if self.after_scheduler and hasattr(self.after_scheduler, 'get_lr'):
                 return self.after_scheduler.get_lr()
             else:
                 return [group['lr'] for group in self.optimizer.param_groups]
 
-    def step(self, epoch=None, metrics=None):
-        # Adjust epoch for zero-based counting and call parent's step method
-        if epoch is not None:
-            epoch_adjusted = epoch - 1
-        else:
-            epoch_adjusted = None
-        super().step(epoch_adjusted)
+    def step(self, epoch=None):
+        # Allow 'epoch' to override 'last_epoch' increment
+        if epoch is None:
+            epoch = self.last_epoch + 1
+        self.last_epoch = epoch
 
-        # Handle the after_scheduler logic separately, if it's time
-        if self.last_epoch >= self.total_epoch:
+        # Update the learning rate
+        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+            param_group['lr'] = lr
+
+        # Proceed with after scheduler if it's time
+        if self.last_epoch > self.total_epoch:
             if self.after_scheduler:
-                if isinstance(self.after_scheduler, ReduceLROnPlateau):
-                    if metrics is not None:
-                        self.after_scheduler.step(metrics)
-                    else:
-                        raise ValueError("Metrics is required for ReduceLROnPlateau scheduler.")
-                else:
-                    self.after_scheduler.step()
+                # Simply step the after_scheduler as it is a StepLR, no metrics needed
+                self.after_scheduler.step()
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
     ed_params = filter(lambda p: id(p) not in ve_params, model.parameters())
-    
+
     OptimizerClass = optim.Adam if args.optim.lower() == 'adam' else optim.AdamW
     optimizer = OptimizerClass(
         [{'params': model.visual_extractor.parameters(), 'lr': args.lr_ve},
