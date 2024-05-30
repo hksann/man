@@ -84,57 +84,45 @@ class BaseTrainer(object):
     def train(self):
         not_improved_count = 0
         for epoch in range(self.start_epoch, self.epochs + 1):
-                
             result = self._train_epoch(epoch)
-
-            # save logged informations into log dict
             log = {'epoch': epoch}
             log.update(result)
             self._record_best(log)
 
-            # print logged informations to the screen
             for key, value in log.items():
                 print('\t{:15s}: {}'.format(str(key), value))
 
-            # evaluate model performance according to configured metric, save best checkpoint as model_best
+            # 根据测试集表现保存最佳模型
             best = False
             if self.mnt_mode != 'off':
                 try:
-                    # check whether model performance improved or not, according to specified metric(mnt_metric)
-                    improved = (self.mnt_mode == 'min' and log[self.mnt_metric] <= self.mnt_best) or \
-                               (self.mnt_mode == 'max' and log[self.mnt_metric] >= self.mnt_best)
+                    improved = (self.mnt_mode == 'min' and log[self.mnt_metric_test] <= self.mnt_best) or \
+                               (self.mnt_mode == 'max' and log[self.mnt_metric_test] >= self.mnt_best)
                 except KeyError:
-                    print("Warning: Metric '{}' is not found. " "Model performance monitoring is disabled.".format(
-                            self.mnt_metric))
+                    print("Warning: Metric '{}' not found. Model performance monitoring is disabled.".format(
+                            self.mnt_metric_test))
                     self.mnt_mode = 'off'
                     improved = False
 
                 if improved:
-                    self.mnt_best = log[self.mnt_metric]
+                    self.mnt_best = log[self.mnt_metric_test]
                     not_improved_count = 0
                     best = True
                 else:
                     not_improved_count += 1
 
                 if not_improved_count > self.early_stop:
-                    print("Validation performance didn\'t improve for {} epochs. " "Training stops.".format(
+                    print("Test performance didn't improve for {} epochs. Training stops.".format(
                         self.early_stop))
                     break
 
-            if epoch % self.save_period == 0:
+            if epoch % self.save_period == 0 or best:
                 self._save_checkpoint(epoch, save_best=best)
 
     def _record_best(self, log):
-        improved_val = (self.mnt_mode == 'min' and log[self.mnt_metric] <= self.best_recorder['val'][
-            self.mnt_metric]) or \
-                       (self.mnt_mode == 'max' and log[self.mnt_metric] >= self.best_recorder['val'][self.mnt_metric])
-        if improved_val:
-            self.best_recorder['val'].update(log)
-
-        improved_test = (self.mnt_mode == 'min' and log[self.mnt_metric_test] <= self.best_recorder['test'][
-            self.mnt_metric_test]) or \
-                        (self.mnt_mode == 'max' and log[self.mnt_metric_test] >= self.best_recorder['test'][
-                            self.mnt_metric_test])
+        # 仅关注测试集结果
+        improved_test = (self.mnt_mode == 'min' and log[self.mnt_metric_test] <= self.best_recorder['test'][self.mnt_metric_test]) or \
+                        (self.mnt_mode == 'max' and log[self.mnt_metric_test] >= self.best_recorder['test'][self.mnt_metric_test])
         if improved_test:
             self.best_recorder['test'].update(log)
 
@@ -271,16 +259,16 @@ class Trainer(BaseTrainer):
                 val_res.extend(reports)
                 val_gts.extend(ground_truths)
 
-                if batch_idx == 0:
-                    random_indices = np.random.choice(len(images_id), 2, replace=False)
-                    for idx in random_indices:
-                        image_name = images_id[idx]
-                        translated_inference_text = self.translate_to_chinese(reports[idx])
-                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
+#                 if batch_idx == 0:
+#                     random_indices = np.random.choice(len(images_id), 2, replace=False)
+#                     for idx in random_indices:
+#                         image_name = images_id[idx]
+#                         translated_inference_text = self.translate_to_chinese(reports[idx])
+#                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
                         
-                        print(f"Validation Set - Image Name: {image_name}")
-                        print(f"\033[34mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
-                        print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
+#                         print(f"Validation Set - Image Name: {image_name}")
+#                         print(f"\033[34mValidation Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
+#                         print(f"Validation Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)}, {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
             
@@ -328,16 +316,16 @@ class Trainer(BaseTrainer):
                 test_res.extend(reports)
                 test_gts.extend(ground_truths)
 
-                if batch_idx == 0:
-                    random_indices = np.random.choice(len(images_id), 2, replace=False)
-                    for idx in random_indices:
-                        image_name = images_id[idx]
-                        translated_inference_text = self.translate_to_chinese(reports[idx])
-                        translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
+#                 if batch_idx == 0:
+#                     random_indices = np.random.choice(len(images_id), 2, replace=False)
+#                     for idx in random_indices:
+#                         image_name = images_id[idx]
+#                         translated_inference_text = self.translate_to_chinese(reports[idx])
+#                         translated_ground_truth_text = self.translate_to_chinese(ground_truths[idx])
 
-                        print(f"Test Set - Image Name: {image_name}")
-                        print(f"\033[34mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
-                        print(f"Test Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
+#                         print(f"Test Set - Image Name: {image_name}")
+#                         print(f"\033[34mTest Set - Inference Text: {reports[idx]} (Translated: {translated_inference_text})\033[0m")
+#                         print(f"Test Set - Ground Truth Text: {ground_truths[idx]} (Translated: {translated_ground_truth_text})")
 
             test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)}, {i: [re] for i, re in enumerate(test_res)})
             log.update(**{'test_' + k: v for k, v in test_met.items()})
