@@ -1,6 +1,6 @@
 python main_train.py \
-    --image_dir data/mimic_cxr/images/ \
-    --ann_path data/mimic_cxr/annotation.json \
+    --image_dir /kaggle/input/images-mimic/mimic_cxr/images \
+    --ann_path /kaggle/input/images-mimic/mimic_cxr/annotation.json \
     --dataset_name mimic_cxr \
     --max_seq_length 100 \
     --threshold 10 \
@@ -8,13 +8,19 @@ python main_train.py \
     --batch_size 16 \
     --lr_ve 1e-4 \
     --lr_ed 5e-4 \
-    --step_size 3 \
-    --gamma 0.8 \
+    --optim 'AdamW' \
+    --lr_scheduler 'StepLR' \
+    --dropout 0 \
+    --step_size 1 \
+    --gamma 0.9 \
     --num_layers 3 \
     --topk 32 \
     --cmm_size 2048 \
     --cmm_dim 512 \
-    --seed 9153 \
+    --seed 7580 \
     --beam_size 3 \
+    --warmup_epochs 1 \
+    --multiplier 1 \
+    --num_workers 4 \
     --save_dir results/mimic_cxr/ \
     --log_period 1000
