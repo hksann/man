@@ -12,6 +12,13 @@ class GradualWarmupScheduler(_LRScheduler):
         super().__init__(optimizer, last_epoch=-1)
 
     def get_lr(self):
+        # Skip warm-up if total_epoch is 0
+        if self.total_epoch == 0:
+            if self.after_scheduler and hasattr(self.after_scheduler, 'get_lr'):
+                return self.after_scheduler.get_lr()
+            else:
+                return [group['lr'] for group in self.optimizer.param_groups]
+
         if self.last_epoch - 1 < self.total_epoch:
             return [(base_lr * ((self.multiplier - 1) * self.last_epoch / self.total_epoch + 1)) for base_lr in self.base_lrs]
         else:
@@ -21,20 +28,20 @@ class GradualWarmupScheduler(_LRScheduler):
                 return [group['lr'] for group in self.optimizer.param_groups]
 
     def step(self, epoch=None):
-        # Allow 'epoch' to override 'last_epoch' increment
-        if epoch is None:
-            epoch = self.last_epoch + 1
-        self.last_epoch = epoch
-
-        # Update the learning rate
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
-            param_group['lr'] = lr
-
-        # Proceed with after scheduler if it's time
-        if self.last_epoch > self.total_epoch:
+        if self.total_epoch == 0:
             if self.after_scheduler:
-                # Simply step the after_scheduler as it is a StepLR, no metrics needed
-                self.after_scheduler.step()
+                if epoch is None:
+                    self.after_scheduler.step(None)
+                else:
+                    self.after_scheduler.step(epoch)
+        elif self.last_epoch + 1 > self.total_epoch:
+            if self.after_scheduler:
+                if epoch is None:
+                    self.after_scheduler.step(None)
+                else:
+                    self.after_scheduler.step(epoch - self.total_epoch if epoch is not None else None)
+        else:
+            return super().step(epoch)
 
 def build_optimizer(args, model):
     ve_params = list(map(id, model.visual_extractor.parameters()))
