@@ -97,34 +97,34 @@ class Tester(BaseTester):
 
     #     return log
     def test(self):
-    self.logger.info('Start to evaluate in the test set.')
-    self.model.eval()
-    log = dict()
-    with torch.no_grad():
-        test_gts, test_res = [], []
-        for batch_idx, (images_id, images, reports_ids, reports_masks) in tqdm(enumerate(self.test_dataloader)):
-            images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
-            output, _ = self.model(images, mode='sample')
-            reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
-            ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-            
-            # 记录生成的报告和对应的图片 ID
-            self.logger.info(f"Image ID: {images_id[0]} - Generated Report: {reports[0]}")
-            print(f"Image ID: {images_id[0]} - Generated Report: {reports[0]}")  # 控制台打印
-            
-            test_res.extend(reports)
-            test_gts.extend(ground_truths)
-
-        test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
-                                    {i: [re] for i, re in enumerate(test_res)})
-        log.update(**{'test_' + k: v for k, v in test_met.items()})
-        print(log)
-
-        test_res, test_gts = pd.DataFrame(test_res), pd.DataFrame(test_gts)
-        test_res.to_csv(os.path.join(self.save_dir, "res.csv"), index=False, header=False)
-        test_gts.to_csv(os.path.join(self.save_dir, "gts.csv"), index=False, header=False)
-
-    return log
+        self.logger.info('Start to evaluate in the test set.')
+        self.model.eval()
+        log = dict()
+        with torch.no_grad():
+            test_gts, test_res = [], []
+            for batch_idx, (images_id, images, reports_ids, reports_masks) in tqdm(enumerate(self.test_dataloader)):
+                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
+                output, _ = self.model(images, mode='sample')
+                reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
+                ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+                
+                # 记录生成的报告和对应的图片 ID
+                self.logger.info(f"Image ID: {images_id[0]} - Generated Report: {reports[0]}")
+                print(f"Image ID: {images_id[0]} - Generated Report: {reports[0]}")  # 控制台打印
+                
+                test_res.extend(reports)
+                test_gts.extend(ground_truths)
+    
+            test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
+                                        {i: [re] for i, re in enumerate(test_res)})
+            log.update(**{'test_' + k: v for k, v in test_met.items()})
+            print(log)
+    
+            test_res, test_gts = pd.DataFrame(test_res), pd.DataFrame(test_gts)
+            test_res.to_csv(os.path.join(self.save_dir, "res.csv"), index=False, header=False)
+            test_gts.to_csv(os.path.join(self.save_dir, "gts.csv"), index=False, header=False)
+    
+        return log
     
     # def plot(self):
     #     assert self.args.batch_size == 1 and self.args.beam_size == 1
@@ -176,52 +176,52 @@ class Tester(BaseTester):
     #                                              "layer_{}".format(layer_idx), "{:04d}_{}.png".format(ne_idx, ne)),
     #                                 heatmap)
     def plot(self):
-    assert self.args.batch_size == 1 and self.args.beam_size == 1
-    self.logger.info('Start to plot attention weights in the test set.')
-    os.makedirs(os.path.join(self.save_dir, "attentions"), exist_ok=True)
-    os.makedirs(os.path.join(self.save_dir, "attentions_entities"), exist_ok=True)
-    ner = spacy.load("en_core_sci_sm")
-    mean = torch.tensor((0.485, 0.456, 0.406))
-    std = torch.tensor((0.229, 0.224, 0.225))
-    mean = mean[:, None, None]
-    std = std[:, None, None]
-
-    self.model.eval()
-    with torch.no_grad():
-        for batch_idx, (images_id, images, reports_ids, reports_masks) in tqdm(enumerate(self.test_dataloader)):
-            images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
-            output, _ = self.model(images, mode='sample')
-            image = torch.clamp((images[0].cpu() * std + mean) * 255, 0, 255).int().cpu().numpy()
-            report = self.model.tokenizer.decode_batch(output.cpu().numpy())[0].split()
-
-            # 打印图片 ID 和生成报告
-            self.logger.info(f"Image ID: {images_id[0]} - Report: {' '.join(report)}")
-            print(f"Image ID: {images_id[0]} - Report: {' '.join(report)}")
-
-            char2word = [idx for word_idx, word in enumerate(report) for idx in [word_idx] * (len(word) + 1)][:-1]
-
-            attention_weights = self.model.encoder_decoder.attention_weights[:-1]
-            assert len(attention_weights) == len(report)
-            for word_idx, (attns, word) in enumerate(zip(attention_weights, report)):
-                for layer_idx, attn in enumerate(attns):
-                    os.makedirs(os.path.join(self.save_dir, "attentions", "{:04d}".format(batch_idx),
-                                             "layer_{}".format(layer_idx)), exist_ok=True)
-
-                    heatmap = generate_heatmap(image, attn.mean(1).squeeze())
-                    cv2.imwrite(os.path.join(self.save_dir, "attentions", "{:04d}".format(batch_idx),
-                                             "layer_{}".format(layer_idx), "{:04d}_{}.png".format(word_idx, word)),
-                                heatmap)
-
-            for ne_idx, ne in enumerate(ner(" ".join(report)).ents):
-                start_index = min(ne.start_char, len(char2word) - 1)
-                end_index = min(ne.end_char, len(char2word) - 1)
-
-                for layer_idx in range(len(attention_weights[0])):
-                    os.makedirs(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
-                                             "layer_{}".format(layer_idx)), exist_ok=True)
-                    attn = [attns[layer_idx] for attns in attention_weights[char2word[start_index]:char2word[end_index] + 1]]
-                    attn = np.concatenate(attn, axis=2)
-                    heatmap = generate_heatmap(image, attn.mean(1).mean(1).squeeze())
-                    cv2.imwrite(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
-                                             "layer_{}".format(layer_idx), "{:04d}_{}.png".format(ne_idx, ne)),
-                                heatmap)
+        assert self.args.batch_size == 1 and self.args.beam_size == 1
+        self.logger.info('Start to plot attention weights in the test set.')
+        os.makedirs(os.path.join(self.save_dir, "attentions"), exist_ok=True)
+        os.makedirs(os.path.join(self.save_dir, "attentions_entities"), exist_ok=True)
+        ner = spacy.load("en_core_sci_sm")
+        mean = torch.tensor((0.485, 0.456, 0.406))
+        std = torch.tensor((0.229, 0.224, 0.225))
+        mean = mean[:, None, None]
+        std = std[:, None, None]
+    
+        self.model.eval()
+        with torch.no_grad():
+            for batch_idx, (images_id, images, reports_ids, reports_masks) in tqdm(enumerate(self.test_dataloader)):
+                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
+                output, _ = self.model(images, mode='sample')
+                image = torch.clamp((images[0].cpu() * std + mean) * 255, 0, 255).int().cpu().numpy()
+                report = self.model.tokenizer.decode_batch(output.cpu().numpy())[0].split()
+    
+                # 打印图片 ID 和生成报告
+                self.logger.info(f"Image ID: {images_id[0]} - Report: {' '.join(report)}")
+                print(f"Image ID: {images_id[0]} - Report: {' '.join(report)}")
+    
+                char2word = [idx for word_idx, word in enumerate(report) for idx in [word_idx] * (len(word) + 1)][:-1]
+    
+                attention_weights = self.model.encoder_decoder.attention_weights[:-1]
+                assert len(attention_weights) == len(report)
+                for word_idx, (attns, word) in enumerate(zip(attention_weights, report)):
+                    for layer_idx, attn in enumerate(attns):
+                        os.makedirs(os.path.join(self.save_dir, "attentions", "{:04d}".format(batch_idx),
+                                                 "layer_{}".format(layer_idx)), exist_ok=True)
+    
+                        heatmap = generate_heatmap(image, attn.mean(1).squeeze())
+                        cv2.imwrite(os.path.join(self.save_dir, "attentions", "{:04d}".format(batch_idx),
+                                                 "layer_{}".format(layer_idx), "{:04d}_{}.png".format(word_idx, word)),
+                                    heatmap)
+    
+                for ne_idx, ne in enumerate(ner(" ".join(report)).ents):
+                    start_index = min(ne.start_char, len(char2word) - 1)
+                    end_index = min(ne.end_char, len(char2word) - 1)
+    
+                    for layer_idx in range(len(attention_weights[0])):
+                        os.makedirs(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
+                                                 "layer_{}".format(layer_idx)), exist_ok=True)
+                        attn = [attns[layer_idx] for attns in attention_weights[char2word[start_index]:char2word[end_index] + 1]]
+                        attn = np.concatenate(attn, axis=2)
+                        heatmap = generate_heatmap(image, attn.mean(1).mean(1).squeeze())
+                        cv2.imwrite(os.path.join(self.save_dir, "attentions_entities", "{:04d}".format(batch_idx),
+                                                 "layer_{}".format(layer_idx), "{:04d}_{}.png".format(ne_idx, ne)),
+                                    heatmap)
