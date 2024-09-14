@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 from .base_cmn import BaseCMN
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler 
 from googletrans import Translator
 from .loss import compute_loss
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau, StepLR
@@ -223,7 +223,7 @@ class Trainer(BaseTrainer):
         for batch_idx, (images_id, images, reports_ids, reports_masks) in enumerate(self.train_dataloader):
             images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(self.device), reports_masks.to(self.device)
 
-            with autocast():
+            with autocast(device_type='cuda'):
                 output = self.model(images, reports_ids, mode='train')
                 loss = self.criterion(output, reports_ids, reports_masks)
 
