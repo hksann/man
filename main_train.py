@@ -83,8 +83,8 @@ def parse_agrs():
     parser.add_argument('--amsgrad', type=bool, default=True, help='Whether to use the AMSGrad variant of Adam.')
 
     # Noam Optimizer Specific Args
-#     parser.add_argument('--noamopt_warmup', type=int, default=5000, help='Number of warmup steps for NoamOpt.')
-#     parser.add_argument('--noamopt_factor', type=int, default=1, help='Factor for NoamOpt.')
+    parser.add_argument('--noamopt_warmup', type=int, default=5000, help='Number of warmup steps for NoamOpt.')
+    parser.add_argument('--noamopt_factor', type=int, default=1, help='Factor for NoamOpt.')
 
     # Learning Rate Scheduler
     parser.add_argument('--lr_scheduler', type=str, default='ReduceLROnPlateau', help='the type of the learning rate scheduler.')
